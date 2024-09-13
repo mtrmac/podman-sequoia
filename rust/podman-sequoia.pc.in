@@ -1,0 +1,10 @@
+prefix=@PREFIX@
+libdir=@LIBDIR@
+
+Name: @NAME@
+Description: @DESCRIPTION@
+URL: @HOMEPAGE@
+Version: @VERSION@
+Requires.private: @REQUIRES@
+Cflags:
+Libs: -L${libdir} -lpodman_openpgp_sequoia
