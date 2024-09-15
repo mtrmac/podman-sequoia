@@ -66,14 +66,18 @@ func TestNewMechanismFromDirectory(t *testing.T) {
 
 func TestNewEphemeralMechanism(t *testing.T) {
 	dir := t.TempDir()
-	_, err := generateKey(dir, "foo@example.org")
+	fingerprint, err := generateKey(dir, "foo@example.org")
 	if err != nil {
 		t.Errorf("unable to generate key: %v", err)
 	}
 	output, err := exportCert(dir, "foo@example.org")
-	_, err = sequoia.NewEphemeralMechanism(output)
+	_, keyIdentities, err := sequoia.NewEphemeralMechanism([][]byte{output})
 	if err != nil {
 		t.Errorf("unable to initialize a mechanism: %v", err)
+	}
+	if len(keyIdentities) != 1 || keyIdentities[0] != fingerprint {
+		t.Errorf("keyIdentity differ from the original: %v != %v",
+			keyIdentities[0], fingerprint)
 	}
 }
 

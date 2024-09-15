@@ -17,8 +17,9 @@ all:: $(c_files)
 
 podman_openpgp_h = ../rust/target/${PROFILE}/include/podman/openpgp.h
 
-$(c_files): $(podman_openpgp_h)
-	$(DLWRAP) --input $(podman_openpgp_h) -o . \
+$(c_files): stamp_c_files
+stamp_c_files: $(podman_openpgp_h)
+	$(DLWRAP) --input $(podman_openpgp_h) -o sequoia \
 		--clang-resource-dir "$(shell clang -print-resource-dir)" \
 		--symbol-regex "^openpgp_" \
 		--license "SPDX-License-Identifier: LGPL-2.0-or-later" \
@@ -27,7 +28,8 @@ $(c_files): $(podman_openpgp_h)
 		--prefix go_openpgp \
 		--function-prefix go \
 		--header-guard GO_OPENPGP_H_ \
-		--include "<podman/openpgp.h>"
+		--include "<podman/openpgp.h>" && \
+	touch $@
 
 clean::
 	rm -f $(c_files)

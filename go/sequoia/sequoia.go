@@ -25,28 +25,55 @@ func NewMechanismFromDirectory(
 		defer C.go_openpgp_error_free(cerr)
 		return nil, errors.New(C.GoString(cerr.message))
 	}
-	mechanism := &SigningMechanism{
+	return &SigningMechanism{
 		mechanism: cMechanism,
-	}
-	return mechanism, nil
+	}, nil
 }
 
-func NewEphemeralMechanism(
-	keyring []byte,
-) (*SigningMechanism, error) {
+func (m *SigningMechanism) importKeys(blob []byte) ([]string, error) {
 	var cerr *C.OpenpgpError
-	cMechanism := C.go_openpgp_mechanism_new_ephemeral(
-		base(keyring),
-		C.size_t(len(keyring)),
-		&cerr)
-	if cMechanism == nil {
+	result := C.go_openpgp_import_keys(
+		m.mechanism,
+		base(blob),
+		C.size_t(len(blob)),
+		&cerr,
+	)
+	if result == nil {
 		defer C.go_openpgp_error_free(cerr)
 		return nil, errors.New(C.GoString(cerr.message))
 	}
-	mechanism := &SigningMechanism{
+
+	keyIdentities := []string{}
+	count := C.go_openpgp_import_result_get_count(result)
+	for i := 0; i < int(count); i++ {
+		cKeyIdentity := C.go_openpgp_import_result_get_content(result, C.size_t(i), &cerr)
+		keyIdentities = append(keyIdentities, C.GoString(cKeyIdentity))
+	}
+
+	return keyIdentities, nil
+}
+
+func NewEphemeralMechanism(
+	blobs [][]byte,
+) (*SigningMechanism, []string, error) {
+	var cerr *C.OpenpgpError
+	cMechanism := C.go_openpgp_mechanism_new_ephemeral(&cerr)
+	if cMechanism == nil {
+		defer C.go_openpgp_error_free(cerr)
+		return nil, nil, errors.New(C.GoString(cerr.message))
+	}
+	m := &SigningMechanism{
 		mechanism: cMechanism,
 	}
-	return mechanism, nil
+	keyIdentities := []string{}
+	for _, blob := range blobs {
+		ki, err := m.importKeys(blob)
+		if err != nil {
+			return nil, nil, err
+		}
+		keyIdentities = append(keyIdentities, ki...)
+	}
+	return m, keyIdentities, nil
 }
 
 func (m *SigningMechanism) SignWithPassphrase(
@@ -118,7 +145,7 @@ func (m *SigningMechanism) SupportsSigning() error {
 func (m *SigningMechanism) UntrustedSignatureContents(
 	untrustedSignature []byte,
 ) (untrustedContents []byte, shortKeyIdentifier string, err error) {
-	return nil, "", errors.New("")
+	return nil, "", errors.New("not supported")
 }
 
 // base returns the address of the underlying array in b,

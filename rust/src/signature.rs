@@ -51,19 +51,26 @@ impl<'a> OpenpgpMechanism<'a> {
         })
     }
 
-    fn ephemeral(keyring: &[u8]) -> Result<Self, anyhow::Error> {
-        let ppr = PacketParser::from_bytes(keyring)?;
-        let certs: Vec<openpgp::Cert> =
-            CertParser::from(ppr).collect::<openpgp::Result<Vec<_>>>()?;
+    fn ephemeral() -> Result<Self, anyhow::Error> {
         let context = sequoia_keystore::Context::configure().ephemeral().build()?;
         let certstore = Arc::new(sequoia_cert_store::CertStore::empty());
-        for cert in certs {
-            certstore.update(Arc::new(sequoia_cert_store::LazyCert::from(cert)))?
-        }
         Ok(Self {
             keystore: sequoia_keystore::Keystore::connect(&context)?,
             certstore,
         })
+    }
+
+    fn import_keys(&mut self, blob: &[u8]) -> Result<OpenpgpImportResult, anyhow::Error> {
+        let ppr = PacketParser::from_bytes(blob)?;
+        let certs: Vec<openpgp::Cert> =
+            CertParser::from(ppr).collect::<openpgp::Result<Vec<_>>>()?;
+        let mut key_handles = vec![];
+        for cert in certs {
+            let lc = sequoia_cert_store::LazyCert::from(cert);
+            key_handles.push(CString::new(lc.key_handle().to_hex()).unwrap());
+            self.certstore.update(Arc::new(lc))?;
+        }
+        Ok(OpenpgpImportResult { key_handles })
     }
 
     fn sign(
@@ -185,6 +192,10 @@ pub struct OpenpgpVerificationResult {
     signer: CString,
 }
 
+pub struct OpenpgpImportResult {
+    key_handles: Vec<CString>,
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn openpgp_mechanism_new_from_directory<'a>(
     dir_ptr: *const c_char,
@@ -203,12 +214,9 @@ pub unsafe extern "C" fn openpgp_mechanism_new_from_directory<'a>(
 
 #[no_mangle]
 pub unsafe extern "C" fn openpgp_mechanism_new_ephemeral<'a>(
-    keyring_ptr: *const u8,
-    keyring_len: size_t,
     err_ptr: *mut *mut OpenpgpError,
 ) -> *mut OpenpgpMechanism<'a> {
-    let keyring = slice::from_raw_parts(keyring_ptr, keyring_len);
-    match OpenpgpMechanism::ephemeral(keyring) {
+    match OpenpgpMechanism::ephemeral() {
         Ok(mechanism) => Box::into_raw(Box::new(mechanism)),
         Err(e) => {
             set_error_from(err_ptr, e);
@@ -232,6 +240,7 @@ pub unsafe extern "C" fn openpgp_signature_get_data(
     signature_ptr: *const OpenpgpSignature,
     data_len: *mut size_t,
 ) -> *const u8 {
+    assert!(!signature_ptr.is_null());
     *data_len = (*signature_ptr).data.len();
     (*signature_ptr).data.as_ptr()
 }
@@ -240,6 +249,7 @@ pub unsafe extern "C" fn openpgp_signature_get_data(
 pub unsafe extern "C" fn openpgp_verification_result_free(
     result_ptr: *mut OpenpgpVerificationResult,
 ) {
+    assert!(!result_ptr.is_null());
     drop(Box::from_raw(result_ptr))
 }
 
@@ -248,6 +258,7 @@ pub unsafe extern "C" fn openpgp_verification_result_get_content(
     result_ptr: *const OpenpgpVerificationResult,
     data_len: *mut size_t,
 ) -> *const u8 {
+    assert!(!result_ptr.is_null());
     *data_len = (*result_ptr).content.len();
     (*result_ptr).content.as_ptr()
 }
@@ -256,6 +267,7 @@ pub unsafe extern "C" fn openpgp_verification_result_get_content(
 pub unsafe extern "C" fn openpgp_verification_result_get_signer(
     result_ptr: *const OpenpgpVerificationResult,
 ) -> *const c_char {
+    assert!(!result_ptr.is_null());
     (*result_ptr).signer.as_ptr()
 }
 
@@ -314,6 +326,55 @@ pub unsafe extern "C" fn openpgp_verify(
 
     let signature = slice::from_raw_parts(signature_ptr, signature_len);
     match (&mut *mechanism_ptr).verify(&signature) {
+        Ok(result) => return Box::into_raw(Box::new(result)),
+        Err(e) => {
+            set_error_from(err_ptr, e.into());
+            return ptr::null_mut();
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn openpgp_import_result_free(result_ptr: *mut OpenpgpImportResult) {
+    drop(Box::from_raw(result_ptr))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn openpgp_import_result_get_count(
+    result_ptr: *const OpenpgpImportResult,
+) -> size_t {
+    assert!(!result_ptr.is_null());
+
+    (*result_ptr).key_handles.len()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn openpgp_import_result_get_content(
+    result_ptr: *const OpenpgpImportResult,
+    index: size_t,
+    err_ptr: *mut *mut OpenpgpError,
+) -> *const c_char {
+    assert!(!result_ptr.is_null());
+
+    if index >= (*result_ptr).key_handles.len() {
+        set_error_from(err_ptr, anyhow::anyhow!("No matching key handle").into());
+    }
+    let key_handle = &(*result_ptr).key_handles[index];
+    key_handle.as_ptr()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn openpgp_import_keys(
+    mechanism_ptr: *mut OpenpgpMechanism,
+    blob_ptr: *const u8,
+    blob_len: size_t,
+    err_ptr: *mut *mut OpenpgpError,
+) -> *mut OpenpgpImportResult {
+    assert!(!mechanism_ptr.is_null());
+    assert!(!blob_ptr.is_null());
+
+    let blob = slice::from_raw_parts(blob_ptr, blob_len);
+    match (&mut *mechanism_ptr).import_keys(&blob) {
         Ok(result) => return Box::into_raw(Box::new(result)),
         Err(e) => {
             set_error_from(err_ptr, e.into());
