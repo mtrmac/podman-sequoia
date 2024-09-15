@@ -12,20 +12,20 @@ import (
 	"unsafe"
 )
 
-type sequoiaSigningMechanism struct {
+type SigningMechanism struct {
 	mechanism *C.OpenpgpMechanism
 }
 
 func NewMechanismFromDirectory(
 	dir string,
-) (*sequoiaSigningMechanism, error) {
+) (*SigningMechanism, error) {
 	var cerr *C.OpenpgpError
 	cMechanism := C.go_openpgp_mechanism_new_from_directory(C.CString(dir), &cerr)
 	if cMechanism == nil {
 		defer C.go_openpgp_error_free(cerr)
 		return nil, errors.New(C.GoString(cerr.message))
 	}
-	mechanism := &sequoiaSigningMechanism{
+	mechanism := &SigningMechanism{
 		mechanism: cMechanism,
 	}
 	return mechanism, nil
@@ -33,7 +33,7 @@ func NewMechanismFromDirectory(
 
 func NewEphemeralMechanism(
 	keyring []byte,
-) (*sequoiaSigningMechanism, error) {
+) (*SigningMechanism, error) {
 	var cerr *C.OpenpgpError
 	cMechanism := C.go_openpgp_mechanism_new_ephemeral(
 		base(keyring),
@@ -43,13 +43,13 @@ func NewEphemeralMechanism(
 		defer C.go_openpgp_error_free(cerr)
 		return nil, errors.New(C.GoString(cerr.message))
 	}
-	mechanism := &sequoiaSigningMechanism{
+	mechanism := &SigningMechanism{
 		mechanism: cMechanism,
 	}
 	return mechanism, nil
 }
 
-func (m *sequoiaSigningMechanism) SignWithPassphrase(
+func (m *SigningMechanism) SignWithPassphrase(
 	input []byte,
 	keyIdentity string,
 	passphrase string,
@@ -78,14 +78,14 @@ func (m *sequoiaSigningMechanism) SignWithPassphrase(
 	return C.GoBytes(unsafe.Pointer(cData), C.int(size)), nil
 }
 
-func (m *sequoiaSigningMechanism) Sign(
+func (m *SigningMechanism) Sign(
 	input []byte,
 	keyIdentity string,
 ) ([]byte, error) {
 	return m.SignWithPassphrase(input, keyIdentity, "")
 }
 
-func (m *sequoiaSigningMechanism) Verify(
+func (m *SigningMechanism) Verify(
 	unverifiedSignature []byte,
 ) (contents []byte, keyIdentity string, err error) {
 	var cerr *C.OpenpgpError
@@ -107,15 +107,15 @@ func (m *sequoiaSigningMechanism) Verify(
 	return
 }
 
-func (m *sequoiaSigningMechanism) Close() error {
+func (m *SigningMechanism) Close() error {
 	return nil
 }
 
-func (m *sequoiaSigningMechanism) SupportsSigning() error {
+func (m *SigningMechanism) SupportsSigning() error {
 	return nil
 }
 
-func (m *sequoiaSigningMechanism) UntrustedSignatureContents(
+func (m *SigningMechanism) UntrustedSignatureContents(
 	untrustedSignature []byte,
 ) (untrustedContents []byte, shortKeyIdentifier string, err error) {
 	return nil, "", errors.New("")
