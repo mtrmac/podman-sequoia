@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/ueno/podman-sequoia/go/sequoia"
 	"io"
+	"os"
 	"os/exec"
 	"regexp"
 	"testing"
@@ -43,6 +44,11 @@ func generateKey(dir string, email string) (string, error) {
 	return fingerprint, nil
 }
 
+func exportKey(dir string, fingerprint string) ([]byte, error) {
+	cmd := exec.Command("sq", "--home", dir, "key", "export", "--cert", fingerprint)
+	return cmd.Output()
+}
+
 func exportCert(dir string, email string) ([]byte, error) {
 	cmd := exec.Command("sq", "--home", dir, "cert", "export", "--email", email)
 	return cmd.Output()
@@ -71,17 +77,18 @@ func TestNewEphemeralMechanism(t *testing.T) {
 		t.Errorf("unable to generate key: %v", err)
 	}
 	output, err := exportCert(dir, "foo@example.org")
-	_, keyIdentities, err := sequoia.NewEphemeralMechanism([][]byte{output})
+	m, err := sequoia.NewEphemeralMechanism()
 	if err != nil {
 		t.Errorf("unable to initialize a mechanism: %v", err)
 	}
+	keyIdentities, err := m.ImportKeys(output)
 	if len(keyIdentities) != 1 || keyIdentities[0] != fingerprint {
 		t.Errorf("keyIdentity differ from the original: %v != %v",
 			keyIdentities[0], fingerprint)
 	}
 }
 
-func TestSignVerify(t *testing.T) {
+func TestGenerateSignVerify(t *testing.T) {
 	dir := t.TempDir()
 	fingerprint, err := generateKey(dir, "foo@example.org")
 	if err != nil {
@@ -106,4 +113,92 @@ func TestSignVerify(t *testing.T) {
 	if keyIdentity != fingerprint {
 		t.Errorf("keyIdentity differ from the original")
 	}
+}
+
+func TestImportSignVerify(t *testing.T) {
+	dir := t.TempDir()
+	fingerprint, err := generateKey(dir, "foo@example.org")
+	if err != nil {
+		t.Errorf("unable to generate key: %v", err)
+	}
+	output, err := exportKey(dir, fingerprint)
+	if err != nil {
+		t.Errorf("unable to export key: %v", err)
+	}
+	newDir := t.TempDir()
+	m, err := sequoia.NewMechanismFromDirectory(newDir)
+	if err != nil {
+		t.Errorf("unable to initialize a mechanism: %v", err)
+	}
+	keyIdentities, err := m.ImportKeys(output)
+	if err != nil {
+		t.Errorf("unable to import key: %v", err)
+	}
+	if len(keyIdentities) != 1 || keyIdentities[0] != fingerprint {
+		t.Errorf("keyIdentity differ from the original: %v != %v",
+			keyIdentities[0], fingerprint)
+	}
+	input := []byte("Hello, world!")
+	sig, err := m.Sign(input, fingerprint)
+	if err != nil {
+		t.Errorf("unable to sign: %v", err)
+	}
+	contents, keyIdentity, err := m.Verify(sig)
+	if err != nil {
+		t.Errorf("unable to verify: %v", err)
+	}
+	if !bytes.Equal(contents, input) {
+		t.Errorf("contents differ from the original")
+	}
+	if keyIdentity != fingerprint {
+		t.Errorf("keyIdentity differ from the original")
+	}
+}
+
+func TestImportSignVerifyEphemeral(t *testing.T) {
+	dir := t.TempDir()
+	fingerprint, err := generateKey(dir, "foo@example.org")
+	if err != nil {
+		t.Errorf("unable to generate key: %v", err)
+	}
+	output, err := exportKey(dir, fingerprint)
+	if err != nil {
+		t.Errorf("unable to export key: %v", err)
+	}
+	m, err := sequoia.NewEphemeralMechanism()
+	if err != nil {
+		t.Errorf("unable to initialize a mechanism: %v", err)
+	}
+	keyIdentities, err := m.ImportKeys(output)
+	if err != nil {
+		t.Errorf("unable to import key: %v", err)
+	}
+	if len(keyIdentities) != 1 || keyIdentities[0] != fingerprint {
+		t.Errorf("keyIdentity differ from the original: %v != %v",
+			keyIdentities[0], fingerprint)
+	}
+	input := []byte("Hello, world!")
+	sig, err := m.Sign(input, fingerprint)
+	if err != nil {
+		t.Errorf("unable to sign: %v", err)
+	}
+	contents, keyIdentity, err := m.Verify(sig)
+	if err != nil {
+		t.Errorf("unable to verify: %v", err)
+	}
+	if !bytes.Equal(contents, input) {
+		t.Errorf("contents differ from the original")
+	}
+	if keyIdentity != fingerprint {
+		t.Errorf("keyIdentity differ from the original")
+	}
+}
+
+func TestMain(m *testing.M) {
+	err := sequoia.Init()
+	if err != nil {
+		panic(err)
+	}
+	status := m.Run()
+	os.Exit(status)
 }

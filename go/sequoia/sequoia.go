@@ -30,50 +30,16 @@ func NewMechanismFromDirectory(
 	}, nil
 }
 
-func (m *SigningMechanism) importKeys(blob []byte) ([]string, error) {
-	var cerr *C.OpenpgpError
-	result := C.go_openpgp_import_keys(
-		m.mechanism,
-		base(blob),
-		C.size_t(len(blob)),
-		&cerr,
-	)
-	if result == nil {
-		defer C.go_openpgp_error_free(cerr)
-		return nil, errors.New(C.GoString(cerr.message))
-	}
-
-	keyIdentities := []string{}
-	count := C.go_openpgp_import_result_get_count(result)
-	for i := 0; i < int(count); i++ {
-		cKeyIdentity := C.go_openpgp_import_result_get_content(result, C.size_t(i), &cerr)
-		keyIdentities = append(keyIdentities, C.GoString(cKeyIdentity))
-	}
-
-	return keyIdentities, nil
-}
-
-func NewEphemeralMechanism(
-	blobs [][]byte,
-) (*SigningMechanism, []string, error) {
+func NewEphemeralMechanism() (*SigningMechanism, error) {
 	var cerr *C.OpenpgpError
 	cMechanism := C.go_openpgp_mechanism_new_ephemeral(&cerr)
 	if cMechanism == nil {
 		defer C.go_openpgp_error_free(cerr)
-		return nil, nil, errors.New(C.GoString(cerr.message))
+		return nil, errors.New(C.GoString(cerr.message))
 	}
-	m := &SigningMechanism{
+	return &SigningMechanism{
 		mechanism: cMechanism,
-	}
-	keyIdentities := []string{}
-	for _, blob := range blobs {
-		ki, err := m.importKeys(blob)
-		if err != nil {
-			return nil, nil, err
-		}
-		keyIdentities = append(keyIdentities, ki...)
-	}
-	return m, keyIdentities, nil
+	}, nil
 }
 
 func (m *SigningMechanism) SignWithPassphrase(
@@ -134,6 +100,29 @@ func (m *SigningMechanism) Verify(
 	return
 }
 
+func (m *SigningMechanism) ImportKeys(blob []byte) ([]string, error) {
+	var cerr *C.OpenpgpError
+	result := C.go_openpgp_import_keys(
+		m.mechanism,
+		base(blob),
+		C.size_t(len(blob)),
+		&cerr,
+	)
+	if result == nil {
+		defer C.go_openpgp_error_free(cerr)
+		return nil, errors.New(C.GoString(cerr.message))
+	}
+
+	keyIdentities := []string{}
+	count := C.go_openpgp_import_result_get_count(result)
+	for i := 0; i < int(count); i++ {
+		cKeyIdentity := C.go_openpgp_import_result_get_content(result, C.size_t(i), &cerr)
+		keyIdentities = append(keyIdentities, C.GoString(cKeyIdentity))
+	}
+
+	return keyIdentities, nil
+}
+
 func (m *SigningMechanism) Close() error {
 	return nil
 }
@@ -157,7 +146,10 @@ func base(b []byte) *C.uchar {
 	return (*C.uchar)(unsafe.Pointer(&b[0]))
 }
 
-func init() {
-	C.go_openpgp_ensure_library(C.CString("libpodman_sequoia.so"),
-		C.RTLD_NOW|C.RTLD_GLOBAL)
+func Init() error {
+	if (C.go_openpgp_ensure_library(C.CString("libpodman_sequoia.so"),
+		C.RTLD_NOW|C.RTLD_GLOBAL) < 0) {
+		return errors.New("unable to load libpodman_sequoia.so")
+	}
+	return nil
 }

@@ -3,7 +3,7 @@
 use anyhow::Context as _;
 use libc::{c_char, size_t};
 use openpgp::cert::prelude::*;
-use openpgp::parse::{stream::*, PacketParser, Parse};
+use openpgp::parse::{stream::*, Parse};
 use openpgp::policy::StandardPolicy;
 use openpgp::serialize::stream::{LiteralWriter, Message, Signer};
 use openpgp::KeyHandle;
@@ -61,14 +61,34 @@ impl<'a> OpenpgpMechanism<'a> {
     }
 
     fn import_keys(&mut self, blob: &[u8]) -> Result<OpenpgpImportResult, anyhow::Error> {
-        let ppr = PacketParser::from_bytes(blob)?;
-        let certs: Vec<openpgp::Cert> =
-            CertParser::from(ppr).collect::<openpgp::Result<Vec<_>>>()?;
+        let mut softkeys = None;
+        for mut backend in self.keystore.backends()?.into_iter() {
+            if backend.id()? == "softkeys" {
+                softkeys = Some(backend);
+                break;
+            }
+        }
+
+        let mut softkeys = if let Some(softkeys) = softkeys {
+            softkeys
+        } else {
+            return Err(anyhow::anyhow!("softkeys backend is not configured."));
+        };
+
         let mut key_handles = vec![];
-        for cert in certs {
-            let lc = sequoia_cert_store::LazyCert::from(cert);
-            key_handles.push(CString::new(lc.key_handle().to_hex()).unwrap());
-            self.certstore.update(Arc::new(lc))?;
+        for r in CertParser::from_bytes(blob)? {
+            let cert = match r {
+                Ok(cert) => cert,
+                Err(err) => {
+                    eprintln!("Error reading cert: {}", err);
+                    continue;
+                }
+            };
+
+            let _ = softkeys.import(&cert)?;
+
+            key_handles.push(CString::new(cert.fingerprint().to_hex().as_bytes()).unwrap());
+            self.certstore.update(Arc::new(sequoia_cert_store::LazyCert::from(cert)))?;
         }
         Ok(OpenpgpImportResult { key_handles })
     }
@@ -192,6 +212,7 @@ pub struct OpenpgpVerificationResult {
     signer: CString,
 }
 
+#[derive(Default)]
 pub struct OpenpgpImportResult {
     key_handles: Vec<CString>,
 }
@@ -371,9 +392,13 @@ pub unsafe extern "C" fn openpgp_import_keys(
     err_ptr: *mut *mut OpenpgpError,
 ) -> *mut OpenpgpImportResult {
     assert!(!mechanism_ptr.is_null());
-    assert!(!blob_ptr.is_null());
 
     let blob = slice::from_raw_parts(blob_ptr, blob_len);
+    if blob.is_empty() {
+        let result = OpenpgpImportResult { ..Default::default() };
+        return Box::into_raw(Box::new(result));
+    }
+
     match (&mut *mechanism_ptr).import_keys(&blob) {
         Ok(result) => return Box::into_raw(Box::new(result)),
         Err(e) => {
