@@ -120,7 +120,7 @@ impl<'a> OpenpgpMechanism<'a> {
             }
         }
 
-        if signing_key_handles.len() == 0 {
+        if signing_key_handles.is_empty() {
             return Err(anyhow::anyhow!(
                 "No matching signing key for {}",
                 key_handle
@@ -129,7 +129,7 @@ impl<'a> OpenpgpMechanism<'a> {
 
         let mut keys = self.keystore.find_key(signing_key_handles[0].clone())?;
 
-        if keys.len() == 0 {
+        if keys.is_empty() {
             return Err(anyhow::anyhow!("No matching key in keystore"));
         }
         if let Some(password) = password {
