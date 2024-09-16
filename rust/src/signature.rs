@@ -4,7 +4,7 @@ use anyhow::Context as _;
 use libc::{c_char, size_t};
 use openpgp::cert::prelude::*;
 use openpgp::parse::{stream::*, Parse};
-use openpgp::policy::StandardPolicy;
+use openpgp::policy::NullPolicy;
 use openpgp::serialize::stream::{LiteralWriter, Message, Signer};
 use openpgp::KeyHandle;
 use sequoia_cert_store::{Store as _, StoreUpdate as _};
@@ -111,7 +111,7 @@ impl<'a> OpenpgpMechanism<'a> {
             })
             .collect::<Vec<Cert>>();
 
-        let p = &StandardPolicy::new();
+        let p = &NullPolicy::new();
 
         let mut signing_key_handles: Vec<KeyHandle> = vec![];
         for cert in certs {
@@ -148,7 +148,7 @@ impl<'a> OpenpgpMechanism<'a> {
     }
 
     fn verify(&mut self, signature: &[u8]) -> Result<OpenpgpVerificationResult, anyhow::Error> {
-        let p = &StandardPolicy::new();
+        let p = &NullPolicy::new();
         let h = Helper {
             certstore: self.certstore.clone(),
             signer: Default::default(),
