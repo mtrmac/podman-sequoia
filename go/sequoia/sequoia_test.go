@@ -58,15 +58,15 @@ func TestNewMechanismFromDirectory(t *testing.T) {
 	dir := t.TempDir()
 	_, err := sequoia.NewMechanismFromDirectory(dir)
 	if err != nil {
-		t.Errorf("unable to initialize a mechanism: %v", err)
+		t.Fatalf("unable to initialize a mechanism: %v", err)
 	}
 	_, err = generateKey(dir, "foo@example.org")
 	if err != nil {
-		t.Errorf("unable to generate key: %v", err)
+		t.Fatalf("unable to generate key: %v", err)
 	}
 	_, err = sequoia.NewMechanismFromDirectory(dir)
 	if err != nil {
-		t.Errorf("unable to initialize a mechanism: %v", err)
+		t.Fatalf("unable to initialize a mechanism: %v", err)
 	}
 }
 
@@ -74,16 +74,16 @@ func TestNewEphemeralMechanism(t *testing.T) {
 	dir := t.TempDir()
 	fingerprint, err := generateKey(dir, "foo@example.org")
 	if err != nil {
-		t.Errorf("unable to generate key: %v", err)
+		t.Fatalf("unable to generate key: %v", err)
 	}
 	output, err := exportCert(dir, "foo@example.org")
 	m, err := sequoia.NewEphemeralMechanism()
 	if err != nil {
-		t.Errorf("unable to initialize a mechanism: %v", err)
+		t.Fatalf("unable to initialize a mechanism: %v", err)
 	}
 	keyIdentities, err := m.ImportKeys(output)
 	if len(keyIdentities) != 1 || keyIdentities[0] != fingerprint {
-		t.Errorf("keyIdentity differ from the original: %v != %v",
+		t.Fatalf("keyIdentity differ from the original: %v != %v",
 			keyIdentities[0], fingerprint)
 	}
 }
@@ -92,26 +92,26 @@ func TestGenerateSignVerify(t *testing.T) {
 	dir := t.TempDir()
 	fingerprint, err := generateKey(dir, "foo@example.org")
 	if err != nil {
-		t.Errorf("unable to generate key: %v", err)
+		t.Fatalf("unable to generate key: %v", err)
 	}
 	m, err := sequoia.NewMechanismFromDirectory(dir)
 	if err != nil {
-		t.Errorf("unable to initialize a mechanism: %v", err)
+		t.Fatalf("unable to initialize a mechanism: %v", err)
 	}
 	input := []byte("Hello, world!")
 	sig, err := m.Sign(input, fingerprint)
 	if err != nil {
-		t.Errorf("unable to sign: %v", err)
+		t.Fatalf("unable to sign: %v", err)
 	}
 	contents, keyIdentity, err := m.Verify(sig)
 	if err != nil {
-		t.Errorf("unable to verify: %v", err)
+		t.Fatalf("unable to verify: %v", err)
 	}
 	if !bytes.Equal(contents, input) {
-		t.Errorf("contents differ from the original")
+		t.Fatalf("contents differ from the original")
 	}
 	if keyIdentity != fingerprint {
-		t.Errorf("keyIdentity differ from the original")
+		t.Fatalf("keyIdentity differ from the original")
 	}
 }
 
@@ -119,39 +119,39 @@ func TestImportSignVerify(t *testing.T) {
 	dir := t.TempDir()
 	fingerprint, err := generateKey(dir, "foo@example.org")
 	if err != nil {
-		t.Errorf("unable to generate key: %v", err)
+		t.Fatalf("unable to generate key: %v", err)
 	}
 	output, err := exportKey(dir, fingerprint)
 	if err != nil {
-		t.Errorf("unable to export key: %v", err)
+		t.Fatalf("unable to export key: %v", err)
 	}
 	newDir := t.TempDir()
 	m, err := sequoia.NewMechanismFromDirectory(newDir)
 	if err != nil {
-		t.Errorf("unable to initialize a mechanism: %v", err)
+		t.Fatalf("unable to initialize a mechanism: %v", err)
 	}
 	keyIdentities, err := m.ImportKeys(output)
 	if err != nil {
-		t.Errorf("unable to import key: %v", err)
+		t.Fatalf("unable to import key: %v", err)
 	}
 	if len(keyIdentities) != 1 || keyIdentities[0] != fingerprint {
-		t.Errorf("keyIdentity differ from the original: %v != %v",
+		t.Fatalf("keyIdentity differ from the original: %v != %v",
 			keyIdentities[0], fingerprint)
 	}
 	input := []byte("Hello, world!")
 	sig, err := m.Sign(input, fingerprint)
 	if err != nil {
-		t.Errorf("unable to sign: %v", err)
+		t.Fatalf("unable to sign: %v", err)
 	}
 	contents, keyIdentity, err := m.Verify(sig)
 	if err != nil {
-		t.Errorf("unable to verify: %v", err)
+		t.Fatalf("unable to verify: %v", err)
 	}
 	if !bytes.Equal(contents, input) {
-		t.Errorf("contents differ from the original")
+		t.Fatalf("contents differ from the original")
 	}
 	if keyIdentity != fingerprint {
-		t.Errorf("keyIdentity differ from the original")
+		t.Fatalf("keyIdentity differ from the original")
 	}
 }
 
@@ -159,38 +159,62 @@ func TestImportSignVerifyEphemeral(t *testing.T) {
 	dir := t.TempDir()
 	fingerprint, err := generateKey(dir, "foo@example.org")
 	if err != nil {
-		t.Errorf("unable to generate key: %v", err)
+		t.Fatalf("unable to generate key: %v", err)
 	}
 	output, err := exportKey(dir, fingerprint)
 	if err != nil {
-		t.Errorf("unable to export key: %v", err)
+		t.Fatalf("unable to export key: %v", err)
 	}
 	m, err := sequoia.NewEphemeralMechanism()
 	if err != nil {
-		t.Errorf("unable to initialize a mechanism: %v", err)
+		t.Fatalf("unable to initialize a mechanism: %v", err)
 	}
 	keyIdentities, err := m.ImportKeys(output)
 	if err != nil {
-		t.Errorf("unable to import key: %v", err)
+		t.Fatalf("unable to import key: %v", err)
 	}
 	if len(keyIdentities) != 1 || keyIdentities[0] != fingerprint {
-		t.Errorf("keyIdentity differ from the original: %v != %v",
+		t.Fatalf("keyIdentity differ from the original: %v != %v",
 			keyIdentities[0], fingerprint)
 	}
 	input := []byte("Hello, world!")
 	sig, err := m.Sign(input, fingerprint)
 	if err != nil {
-		t.Errorf("unable to sign: %v", err)
+		t.Fatalf("unable to sign: %v", err)
 	}
 	contents, keyIdentity, err := m.Verify(sig)
 	if err != nil {
-		t.Errorf("unable to verify: %v", err)
+		t.Fatalf("unable to verify: %v", err)
 	}
 	if !bytes.Equal(contents, input) {
-		t.Errorf("contents differ from the original")
+		t.Fatalf("contents differ from the original")
 	}
 	if keyIdentity != fingerprint {
-		t.Errorf("keyIdentity differ from the original")
+		t.Fatalf("keyIdentity differ from the original")
+	}
+}
+
+func TestImportSignVerifyGPG(t *testing.T) {
+	dir := "fixtures"
+	m, err := sequoia.NewMechanismFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unable to initialize a mechanism: %v", err)
+	}
+	fingerprint := "1D8230F6CDB6A06716E414C1DB72F2188BB46CC8"
+	input := []byte("Hello, world!")
+	sig, err := m.Sign(input, fingerprint)
+	if err != nil {
+		t.Fatalf("unable to sign: %v", err)
+	}
+	contents, keyIdentity, err := m.Verify(sig)
+	if err != nil {
+		t.Fatalf("unable to verify: %v", err)
+	}
+	if !bytes.Equal(contents, input) {
+		t.Fatalf("contents differ from the original")
+	}
+	if keyIdentity != fingerprint {
+		t.Fatalf("keyIdentity differ from the original")
 	}
 }
 
