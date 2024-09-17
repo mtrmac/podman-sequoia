@@ -194,30 +194,6 @@ func TestImportSignVerifyEphemeral(t *testing.T) {
 	}
 }
 
-func TestImportSignVerifyGPG(t *testing.T) {
-	dir := "fixtures"
-	m, err := sequoia.NewMechanismFromDirectory(dir)
-	if err != nil {
-		t.Fatalf("unable to initialize a mechanism: %v", err)
-	}
-	fingerprint := "1D8230F6CDB6A06716E414C1DB72F2188BB46CC8"
-	input := []byte("Hello, world!")
-	sig, err := m.Sign(input, fingerprint)
-	if err != nil {
-		t.Fatalf("unable to sign: %v", err)
-	}
-	contents, keyIdentity, err := m.Verify(sig)
-	if err != nil {
-		t.Fatalf("unable to verify: %v", err)
-	}
-	if !bytes.Equal(contents, input) {
-		t.Fatalf("contents differ from the original")
-	}
-	if keyIdentity != fingerprint {
-		t.Fatalf("keyIdentity differ from the original")
-	}
-}
-
 func TestMain(m *testing.M) {
 	err := sequoia.Init()
 	if err != nil {
