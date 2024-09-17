@@ -141,8 +141,8 @@ func base(b []byte) *C.uchar {
 }
 
 func Init() error {
-	if (C.go_openpgp_ensure_library(C.CString("libpodman_sequoia.so"),
-		C.RTLD_NOW|C.RTLD_GLOBAL) < 0) {
+	if C.go_openpgp_ensure_library(C.CString("libpodman_sequoia.so"),
+		C.RTLD_NOW|C.RTLD_GLOBAL) < 0 {
 		return errors.New("unable to load libpodman_sequoia.so")
 	}
 	return nil
