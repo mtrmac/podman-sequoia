@@ -2375,6 +2375,7 @@ dependencies = [
  "cdylib-link-lines",
  "dirs",
  "libc",
+ "log",
  "sequoia-cert-store",
  "sequoia-keystore",
  "sequoia-openpgp",

@@ -4,12 +4,13 @@ use anyhow::Context as _;
 use libc::{c_char, size_t};
 use openpgp::cert::prelude::*;
 use openpgp::parse::{stream::*, Parse};
-use openpgp::policy::NullPolicy;
+use openpgp::policy::StandardPolicy;
 use openpgp::serialize::stream::{LiteralWriter, Message, Signer};
 use openpgp::KeyHandle;
 use sequoia_cert_store::{Store as _, StoreUpdate as _};
 use sequoia_keystore;
 use sequoia_openpgp as openpgp;
+use sequoia_policy_config::ConfiguredStandardPolicy;
 use std::ffi::{CStr, CString, OsStr};
 use std::fs;
 use std::io::{Read, Write};
@@ -24,6 +25,7 @@ use crate::{set_error_from, OpenpgpError};
 pub struct OpenpgpMechanism<'a> {
     keystore: sequoia_keystore::Keystore,
     certstore: Arc<sequoia_cert_store::CertStore<'a>>,
+    policy: StandardPolicy<'a>,
 }
 
 impl<'a> OpenpgpMechanism<'a> {
@@ -45,18 +47,28 @@ impl<'a> OpenpgpMechanism<'a> {
         let certstore_dir = home_dir.join("data").join("pgp.cert.d");
         fs::create_dir_all(&certstore_dir)?;
         let certstore = sequoia_cert_store::CertStore::open(&certstore_dir)?;
+
+        let mut policy = ConfiguredStandardPolicy::new();
+        policy.parse_default_config()?;
+        let policy = policy.build();
+
         Ok(Self {
             keystore,
             certstore: Arc::new(certstore),
+            policy,
         })
     }
 
     fn ephemeral() -> Result<Self, anyhow::Error> {
         let context = sequoia_keystore::Context::configure().ephemeral().build()?;
         let certstore = Arc::new(sequoia_cert_store::CertStore::empty());
+        let mut policy = ConfiguredStandardPolicy::new();
+        policy.parse_default_config()?;
+        let policy = policy.build();
         Ok(Self {
             keystore: sequoia_keystore::Keystore::connect(&context)?,
             certstore,
+            policy,
         })
     }
 
@@ -80,7 +92,7 @@ impl<'a> OpenpgpMechanism<'a> {
             let cert = match r {
                 Ok(cert) => cert,
                 Err(err) => {
-                    eprintln!("Error reading cert: {}", err);
+                    log::info!("Error reading cert: {}", err);
                     continue;
                 }
             };
@@ -88,7 +100,8 @@ impl<'a> OpenpgpMechanism<'a> {
             let _ = softkeys.import(&cert)?;
 
             key_handles.push(CString::new(cert.fingerprint().to_hex().as_bytes()).unwrap());
-            self.certstore.update(Arc::new(sequoia_cert_store::LazyCert::from(cert)))?;
+            self.certstore
+                .update(Arc::new(sequoia_cert_store::LazyCert::from(cert)))?;
         }
         Ok(OpenpgpImportResult { key_handles })
     }
@@ -111,11 +124,9 @@ impl<'a> OpenpgpMechanism<'a> {
             })
             .collect::<Vec<Cert>>();
 
-        let p = &NullPolicy::new();
-
         let mut signing_key_handles: Vec<KeyHandle> = vec![];
         for cert in certs {
-            for ka in cert.keys().with_policy(p, None).for_signing() {
+            for ka in cert.keys().with_policy(&self.policy, None).for_signing() {
                 signing_key_handles.push(ka.key().fingerprint().into());
             }
         }
@@ -148,12 +159,19 @@ impl<'a> OpenpgpMechanism<'a> {
     }
 
     fn verify(&mut self, signature: &[u8]) -> Result<OpenpgpVerificationResult, anyhow::Error> {
-        let p = &NullPolicy::new();
+        if signature.is_empty() {
+            return Err(anyhow::anyhow!("empty signature"));
+        }
+
         let h = Helper {
             certstore: self.certstore.clone(),
             signer: Default::default(),
         };
-        let mut v = VerifierBuilder::from_bytes(signature)?.with_policy(p, None, h)?;
+        let mut policy = ConfiguredStandardPolicy::new();
+        policy.parse_default_config()?;
+        let policy = policy.build();
+
+        let mut v = VerifierBuilder::from_bytes(signature)?.with_policy(&policy, None, h)?;
         let mut content = Vec::new();
         v.read_to_end(&mut content)?;
 
@@ -187,8 +205,19 @@ impl<'a> VerificationHelper for Helper<'a> {
     }
 
     fn check(&mut self, structure: MessageStructure) -> openpgp::Result<()> {
-        for (_, layer) in structure.into_iter().enumerate() {
+        for layer in structure {
             match layer {
+                MessageLayer::Compression { algo } => log::info!("Compressed using {}", algo),
+                MessageLayer::Encryption {
+                    sym_algo,
+                    aead_algo,
+                } => {
+                    if let Some(aead_algo) = aead_algo {
+                        log::info!("Encrypted and protected using {}/{}", sym_algo, aead_algo);
+                    } else {
+                        log::info!("Encrypted using {}", sym_algo);
+                    }
+                }
                 MessageLayer::SignatureGroup { ref results } => {
                     let result = results.iter().find(|r| r.is_ok());
                     if let Some(result) = result {
@@ -196,7 +225,6 @@ impl<'a> VerificationHelper for Helper<'a> {
                         return Ok(());
                     }
                 }
-                _ => return Err(anyhow::anyhow!("Unexpected message structure")),
             }
         }
         Err(anyhow::anyhow!("No valid signature"))
@@ -343,7 +371,6 @@ pub unsafe extern "C" fn openpgp_verify(
     err_ptr: *mut *mut OpenpgpError,
 ) -> *mut OpenpgpVerificationResult {
     assert!(!mechanism_ptr.is_null());
-    assert!(!signature_ptr.is_null());
 
     let signature = slice::from_raw_parts(signature_ptr, signature_len);
     match (&mut *mechanism_ptr).verify(&signature) {
@@ -395,7 +422,9 @@ pub unsafe extern "C" fn openpgp_import_keys(
 
     let blob = slice::from_raw_parts(blob_ptr, blob_len);
     if blob.is_empty() {
-        let result = OpenpgpImportResult { ..Default::default() };
+        let result = OpenpgpImportResult {
+            ..Default::default()
+        };
         return Box::into_raw(Box::new(result));
     }
 
