@@ -2,7 +2,7 @@
 
 package sequoia
 
-// #cgo CFLAGS: -I. -DGO_OPENPGP_ENABLE_DLOPEN=1
+// #cgo CFLAGS: -I. -Iinclude -DGO_OPENPGP_ENABLE_DLOPEN=1
 // #include "goopenpgp.h"
 // #include <dlfcn.h>
 import "C"
