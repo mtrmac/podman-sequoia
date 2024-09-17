@@ -13,7 +13,8 @@ dirs = "5"
 libc = "0.2"
 sequoia-cert-store = "0.5"
 sequoia-keystore = { version = "0.6", default-features = false, features = ["softkeys"] }
-sequoia-openpgp = { version = "1.20", default-features = false }
+sequoia-openpgp = { version = "1.20", default-features = false, features = ["compression"] }
+sequoia-policy-config = "0.6"
 
 [build-dependencies]
 anyhow = "1"
@@ -27,7 +28,7 @@ cdylib-link-lines = "0.1.4"
 
 # We explicitly do not want to enable Sequoia's decompression support.
 # Hence we only select a crypto backend.
-default = ["crypto-nettle"]
+default = ["crypto-openssl"]
 crypto-nettle = ["sequoia-openpgp/crypto-nettle"]
 crypto-rust = ["sequoia-openpgp/crypto-rust"]
 crypto-cng = ["sequoia-openpgp/crypto-cng"]
