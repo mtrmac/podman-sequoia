@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: LGPL-2.0-or-later
 
+#![allow(clippy::missing_safety_doc)]
 use anyhow::Context as _;
 use libc::{c_char, size_t};
 use openpgp::cert::prelude::*;
@@ -8,7 +9,6 @@ use openpgp::policy::StandardPolicy;
 use openpgp::serialize::stream::{LiteralWriter, Message, Signer};
 use openpgp::KeyHandle;
 use sequoia_cert_store::{Store as _, StoreUpdate as _};
-use sequoia_keystore;
 use sequoia_openpgp as openpgp;
 use sequoia_policy_config::ConfiguredStandardPolicy;
 use std::ffi::{CStr, CString, OsStr};
@@ -354,11 +354,11 @@ pub unsafe extern "C" fn openpgp_sign(
     };
 
     let data = slice::from_raw_parts(data_ptr, data_len);
-    match (&mut *mechanism_ptr).sign(key_handle, password, &data) {
-        Ok(signature) => return Box::into_raw(Box::new(OpenpgpSignature { data: signature })),
+    match (*mechanism_ptr).sign(key_handle, password, data) {
+        Ok(signature) => Box::into_raw(Box::new(OpenpgpSignature { data: signature })),
         Err(e) => {
-            set_error_from(err_ptr, e.into());
-            return ptr::null_mut();
+            set_error_from(err_ptr, e);
+            ptr::null_mut()
         }
     }
 }
@@ -373,11 +373,11 @@ pub unsafe extern "C" fn openpgp_verify(
     assert!(!mechanism_ptr.is_null());
 
     let signature = slice::from_raw_parts(signature_ptr, signature_len);
-    match (&mut *mechanism_ptr).verify(&signature) {
-        Ok(result) => return Box::into_raw(Box::new(result)),
+    match (*mechanism_ptr).verify(signature) {
+        Ok(result) => Box::into_raw(Box::new(result)),
         Err(e) => {
-            set_error_from(err_ptr, e.into());
-            return ptr::null_mut();
+            set_error_from(err_ptr, e);
+            ptr::null_mut()
         }
     }
 }
@@ -405,7 +405,7 @@ pub unsafe extern "C" fn openpgp_import_result_get_content(
     assert!(!result_ptr.is_null());
 
     if index >= (*result_ptr).key_handles.len() {
-        set_error_from(err_ptr, anyhow::anyhow!("No matching key handle").into());
+        set_error_from(err_ptr, anyhow::anyhow!("No matching key handle"));
     }
     let key_handle = &(*result_ptr).key_handles[index];
     key_handle.as_ptr()
@@ -428,11 +428,11 @@ pub unsafe extern "C" fn openpgp_import_keys(
         return Box::into_raw(Box::new(result));
     }
 
-    match (&mut *mechanism_ptr).import_keys(&blob) {
-        Ok(result) => return Box::into_raw(Box::new(result)),
+    match (*mechanism_ptr).import_keys(blob) {
+        Ok(result) => Box::into_raw(Box::new(result)),
         Err(e) => {
-            set_error_from(err_ptr, e.into());
-            return ptr::null_mut();
+            set_error_from(err_ptr, e);
+            ptr::null_mut()
         }
     }
 }
