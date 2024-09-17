@@ -131,12 +131,6 @@ func (m *SigningMechanism) SupportsSigning() error {
 	return nil
 }
 
-func (m *SigningMechanism) UntrustedSignatureContents(
-	untrustedSignature []byte,
-) (untrustedContents []byte, shortKeyIdentifier string, err error) {
-	return nil, "", errors.New("not supported")
-}
-
 // base returns the address of the underlying array in b,
 // being careful not to panic when b has zero length.
 func base(b []byte) *C.uchar {
