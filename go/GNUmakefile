@@ -15,9 +15,9 @@ all:: stamp_c_files
 podman_openpgp_h = \
 	../rust/target/${PROFILE}/include/podman/openpgp.h
 dlwrap_files = \
-	../rust/target/${PROFILE}/include/goopenpgp.c \
-	../rust/target/${PROFILE}/include/goopenpgp.h \
-	../rust/target/${PROFILE}/include/goopenpgpfuncs.h
+	../rust/target/${PROFILE}/dlwrap/goopenpgp.c \
+	../rust/target/${PROFILE}/dlwrap/goopenpgp.h \
+	../rust/target/${PROFILE}/dlwrap/goopenpgpfuncs.h
 
 $(c_files): stamp_c_files
 stamp_c_files:

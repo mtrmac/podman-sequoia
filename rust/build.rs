@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Generate dlwrap files
     dlwrap::Builder::new(&include)
-        .output_dir(build_dir.join("include"))
+        .output_dir(build_dir.join("dlwrap"))
         .symbol_regex(&Regex::new("^openpgp_")?)
 	.license("SPDX-License-Identifier: LGPL-2.0-or-later")
 	.loader_basename("goopenpgp")
