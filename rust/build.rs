@@ -1,93 +1,10 @@
 extern crate cbindgen;
 
-use std::collections::HashMap;
 use std::env;
-use std::fs::File;
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::Result;
 use regex::Regex;
-
-struct PkgConfigTemplate {
-    cargo_toml: HashMap<String, String>,
-    pc_in: String,
-}
-
-impl PkgConfigTemplate {
-    /// Read the pkg-config template file.
-    fn new<P, S>(src: P, pc_in: S) -> Result<Self>
-    where
-        P: AsRef<Path>,
-        S: AsRef<str>,
-    {
-        let src = src.as_ref();
-
-        let mut pc_in_ = PathBuf::from(src);
-        pc_in_.push(pc_in.as_ref());
-        let pc_in = pc_in_;
-
-        let pc_in = std::fs::read_to_string(pc_in)?;
-
-        let cargo_toml = HashMap::from([
-            ("NAME".to_string(), env!("CARGO_PKG_NAME").to_string()),
-            (
-                "DESCRIPTION".to_string(),
-                env!("CARGO_PKG_DESCRIPTION").to_string(),
-            ),
-            ("VERSION".to_string(), env!("CARGO_PKG_VERSION").to_string()),
-            (
-                "HOMEPAGE".to_string(),
-                env!("CARGO_PKG_HOMEPAGE").to_string(),
-            ),
-            (
-                "REQUIRES".to_string(),
-                if cfg!(feature = "crypto-botan") {
-                    "botan-3"
-                } else if cfg!(feature = "crypto-botan2") {
-                    "botan-2"
-                } else if cfg!(feature = "crypto-nettle") {
-                    "nettle"
-                } else if cfg!(feature = "crypto-openssl") {
-                    "libssl"
-                } else if cfg!(feature = "crypto-cng") {
-                    ""
-                } else if cfg!(feature = "crypto-rust") {
-                    ""
-                } else {
-                    panic!(
-                        "No cryptographic backend selected.  Try: \
-                         \"cargo build --no-default-features \
-                         --features crypto-openssl\""
-                    )
-                }
-                .to_string(),
-            ),
-        ]);
-
-        Ok(PkgConfigTemplate { cargo_toml, pc_in })
-    }
-
-    /// Perform substitutions on the pkg-config file based on what was
-    /// read from the Cargo.toml file and the provided substitution
-    /// map.
-    ///
-    /// The mappings in the substitution map are preferred to those in
-    /// the Cargo.toml file.
-    ///
-    /// Substitutions take the form of keys and values where the
-    /// string @KEY@ is substituted with the value of KEY.  So,
-    /// @VERSION@ is substituted with the value of VERSION.
-    fn substitute(&self, map: HashMap<String, String>) -> Result<String> {
-        let mut pc: String = self.pc_in.clone();
-
-        for (key, value) in map.iter().chain(self.cargo_toml.iter()) {
-            pc = pc.replace(&format!("@{}@", key), value);
-        }
-
-        Ok(pc)
-    }
-}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Generate
@@ -121,11 +38,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Unable to generate bindings")
         .write_to_file(&include);
 
-    let pc_in = PkgConfigTemplate::new(&src, "podman-sequoia.pc.in")?;
-
-    // Generate rpm-sequoia.pc.
-    let mut pc = build_dir.clone();
-    pc.push("podman-sequoia.pc");
+    // Generate dlwrap files
+    dlwrap::Builder::new(&include)
+        .output_dir(build_dir.join("include"))
+        .symbol_regex(&Regex::new("^openpgp_")?)
+	.license("SPDX-License-Identifier: LGPL-2.0-or-later")
+	.loader_basename("goopenpgp")
+	.soname("OPENPGP_SONAME")
+	.prefix("go_openpgp")
+	.function_prefix("go")
+	.header_guard("GO_OPENPGP_H_")
+	.include("<podman/openpgp.h>")
+        .generate()?;
 
     let prefix = env::var_os("PREFIX");
     let prefix: &str = match prefix.as_ref().map(|s| s.to_str()) {
@@ -140,44 +64,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => "${prefix}/lib",
     };
 
-    let content = pc_in.substitute(HashMap::from([
-        ("PREFIX".to_string(), prefix.into()),
-        ("LIBDIR".to_string(), libdir.into()),
-    ]))?;
-
-    let mut pc = File::create(&pc).expect(&format!(
-        "Creating {:?} (CARGO_TARGET_DIR: {:?})",
-        pc,
-        env::var_os("CARGO_TARGET_DIR")
-    ));
-    pc.write_all(content.as_bytes())?;
-
-    // Generate podman-sequoia-uninstalled.pc.
-    let mut pc = build_dir.clone();
-    pc.push("podman-sequoia-uninstalled.pc");
-
-    let content = pc_in.substitute(HashMap::from([
-        (
-            "PREFIX".to_string(),
-            build_dir
-                .to_str()
-                .expect("build directory is not valid UTF-8")
-                .to_string(),
-        ),
-        ("LIBDIR".to_string(), "${prefix}".into()),
-    ]))?;
-
-    let mut pc = File::create(&pc).expect(&format!(
-        "Creating {:?} (CARGO_TARGET_DIR: {:?})",
-        pc,
-        env::var_os("CARGO_TARGET_DIR")
-    ));
-    pc.write_all(content.as_bytes())?;
-
     // Rerun if...
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=Cargo.toml");
-    println!("cargo:rerun-if-changed=podman-sequoia.pc.in");
     println!("cargo:rerun-if-env-changed=PREFIX");
     println!("cargo:rerun-if-env-changed=LIBDIR");
     println!("cargo:rerun-if-env-changed=PROFILE");
@@ -235,18 +124,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::os::unix::fs::symlink("libpodman_sequoia.so", link)?;
         }
     }
-
-    // Generate dlwrap
-    let mut builder = dlwrap::Builder::new(&include);
-    builder
-        .output_dir(build_dir.join("include"))
-        .symbol_regex(&Regex::new("^openpgp_")?)
-	.license("SPDX-License-Identifier: LGPL-2.0-or-later")
-	.loader_basename("goopenpgp")
-	.soname("OPENPGP_SONAME")
-	.prefix("go_openpgp")
-	.function_prefix("go")
-	.header_guard("GO_OPENPGP_H_")
-	.include("<podman/openpgp.h>")
-        .generate()
+    Ok(())
 }
