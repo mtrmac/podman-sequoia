@@ -2,7 +2,6 @@
 
 srcdir = .
 abs_srcdir = $(shell realpath $(srcdir))
-DLWRAP = dlwrap
 
 RELEASE ?= 0
 ifeq ($(RELEASE),1)
@@ -13,8 +12,12 @@ endif
 
 all:: stamp_c_files
 
-podman_openpgp_h = ../rust/target/${PROFILE}/include/podman/openpgp.h
-dlwrap_files = ../rust/target/${PROFILE}/include/goopenpgp.c ../rust/target/${PROFILE}/include/goopenpgp.h ../rust/target/${PROFILE}/include/goopenpgpfuncs.h
+podman_openpgp_h = \
+	../rust/target/${PROFILE}/include/podman/openpgp.h
+dlwrap_files = \
+	../rust/target/${PROFILE}/include/goopenpgp.c \
+	../rust/target/${PROFILE}/include/goopenpgp.h \
+	../rust/target/${PROFILE}/include/goopenpgpfuncs.h
 
 $(c_files): stamp_c_files
 stamp_c_files:
