@@ -21,6 +21,8 @@ sequoia-policy-config = "0.6"
 anyhow = "1"
 cbindgen = "0.24.0"
 cdylib-link-lines = "0.1.4"
+dlwrap = "0.3.6"
+regex = "1"
 
 [features]
 # To use a different cryptographic backend, e.g., OpenSSL, do:

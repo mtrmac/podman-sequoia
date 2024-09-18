@@ -7,6 +7,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
+use regex::Regex;
 
 struct PkgConfigTemplate {
     cargo_toml: HashMap<String, String>,
@@ -108,6 +109,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let profile = env::var_os("PROFILE").expect("PROFILE not set");
     build_dir.push(&profile);
 
+    let include = build_dir.join("include/podman/openpgp.h");
+
     // Generate ${CARGO_TARGET_DIR}/${PROFILE}/openpgp.h
     cbindgen::Builder::new()
         .with_crate(&src)
@@ -116,7 +119,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_pragma_once(true)
         .generate()
         .expect("Unable to generate bindings")
-        .write_to_file(build_dir.join("include/podman/openpgp.h"));
+        .write_to_file(&include);
 
     let pc_in = PkgConfigTemplate::new(&src, "podman-sequoia.pc.in")?;
 
@@ -233,5 +236,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    Ok(())
+    // Generate dlwrap
+    let mut builder = dlwrap::Builder::new(&include);
+    builder
+        .output_dir(build_dir.join("include"))
+        .symbol_regex(&Regex::new("^openpgp_")?)
+	.license("SPDX-License-Identifier: LGPL-2.0-or-later")
+	.loader_basename("goopenpgp")
+	.soname("OPENPGP_SONAME")
+	.prefix("go_openpgp")
+	.function_prefix("go")
+	.header_guard("GO_OPENPGP_H_")
+	.include("<podman/openpgp.h>")
+        .generate()
 }

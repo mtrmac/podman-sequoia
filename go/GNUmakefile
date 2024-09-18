@@ -11,28 +11,19 @@ else
         PROFILE ?= debug
 endif
 
-c_files = sequoia/goopenpgp.h sequoia/goopenpgp.c sequoia/goopenpgpfuncs.h
-
-all:: $(c_files)
+all:: stamp_c_files
 
 podman_openpgp_h = ../rust/target/${PROFILE}/include/podman/openpgp.h
+dlwrap_files = ../rust/target/${PROFILE}/include/goopenpgp.c ../rust/target/${PROFILE}/include/goopenpgp.h ../rust/target/${PROFILE}/include/goopenpgpfuncs.h
 
 $(c_files): stamp_c_files
-stamp_c_files: $(podman_openpgp_h)
+stamp_c_files:
 	mkdir -p sequoia/include/podman && \
-	cp $< sequoia/include/podman && \
-	$(DLWRAP) --input sequoia/include/podman/openpgp.h -o sequoia \
-		--clang-resource-dir "$(shell clang -print-resource-dir)" \
-		--symbol-regex "^openpgp_" \
-		--license "SPDX-License-Identifier: LGPL-2.0-or-later" \
-		--loader-basename goopenpgp \
-		--soname OPENPGP_SONAME \
-		--prefix go_openpgp \
-		--function-prefix go \
-		--header-guard GO_OPENPGP_H_ \
-		--include "<podman/openpgp.h>" && \
+	cp $(podman_openpgp_h) sequoia/include/podman && \
+	cp $(dlwrap_files) sequoia && \
 	touch $@
 
-clean::
-	rm -f $(c_files)
-	rm -rf sequoia/include
+maintainer-clean::
+	rm -f $(podman_openpgp_h)
+	rm -f $(dlwrap_files)
+	rm -f stamp_c_files
