@@ -150,7 +150,7 @@ impl<'a> OpenpgpMechanism<'a> {
         let mut sink = vec![];
         {
             let message = Message::new(&mut sink);
-            let message = Signer::new(message, &mut keys[0]).build()?;
+            let message = Signer::new(message, &mut keys[0])?.build()?;
             let mut message = LiteralWriter::new(message).build()?;
             message.write_all(data)?;
             message.finalize()?;
@@ -221,7 +221,7 @@ impl<'a> VerificationHelper for Helper<'a> {
                 MessageLayer::SignatureGroup { ref results } => {
                     let result = results.iter().find(|r| r.is_ok());
                     if let Some(result) = result {
-                        self.signer = Some(result.as_ref().unwrap().ka.cert().cert().to_owned());
+                        self.signer = Some(result.as_ref().unwrap().ka.cert().to_owned());
                         return Ok(());
                     }
                 }
