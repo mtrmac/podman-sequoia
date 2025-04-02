@@ -15,7 +15,7 @@ import (
 )
 
 func generateKey(dir string, email string) (string, error) {
-	cmd := exec.Command("sq", "--home", dir, "key", "generate", "--userid", fmt.Sprintf("<%s>", email))
+	cmd := exec.Command("sq", "--home", dir, "key", "generate", "--userid", fmt.Sprintf("<%s>", email), "--own-key", "--without-password")
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return "", err
@@ -26,7 +26,6 @@ func generateKey(dir string, email string) (string, error) {
 	}
 
 	output, err := io.ReadAll(stderr)
-
 	if err := cmd.Wait(); err != nil {
 		return "", err
 	}
@@ -37,10 +36,6 @@ func generateKey(dir string, email string) (string, error) {
 		return "", errors.New("unable to extract fingerprint")
 	}
 	fingerprint := string(matches[1][:])
-	cmd = exec.Command("sq", "--home", dir, "pki", "link", "add", "--ca", "*", fingerprint, "--all")
-	if err := cmd.Run(); err != nil {
-		return "", err
-	}
 	return fingerprint, nil
 }
 
@@ -49,8 +44,8 @@ func exportKey(dir string, fingerprint string) ([]byte, error) {
 	return cmd.Output()
 }
 
-func exportCert(dir string, email string) ([]byte, error) {
-	cmd := exec.Command("sq", "--home", dir, "cert", "export", "--email", email)
+func exportCert(dir string, fingerprint string) ([]byte, error) {
+	cmd := exec.Command("sq", "--home", dir, "cert", "export", "--cert", fingerprint)
 	return cmd.Output()
 }
 
@@ -76,7 +71,7 @@ func TestNewEphemeralMechanism(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to generate key: %v", err)
 	}
-	output, err := exportCert(dir, "foo@example.org")
+	output, err := exportCert(dir, fingerprint)
 	m, err := sequoia.NewEphemeralMechanism()
 	if err != nil {
 		t.Fatalf("unable to initialize a mechanism: %v", err)
