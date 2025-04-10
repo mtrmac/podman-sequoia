@@ -21,7 +21,7 @@ sequoia-policy-config = "0.8"
 anyhow = "1"
 cbindgen = "0.24.0"
 cdylib-link-lines = "0.1.4"
-dlwrap = "0.3.6"
+dlwrap = "0.3.7"
 regex = "1"
 
 [features]
