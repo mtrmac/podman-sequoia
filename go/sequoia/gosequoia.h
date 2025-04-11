@@ -5,27 +5,27 @@
  * without any warranty.
  */
 
-#ifndef GO_OPENPGP_H_
-#define GO_OPENPGP_H_
+#ifndef GO_SEQUOIA_H_
+#define GO_SEQUOIA_H_
 
-#include <podman/openpgp.h>
+#include <sequoia.h>
 
-#if defined(GO_OPENPGP_ENABLE_DLOPEN) && GO_OPENPGP_ENABLE_DLOPEN
+#if defined(GO_SEQUOIA_ENABLE_DLOPEN) && GO_SEQUOIA_ENABLE_DLOPEN
 
 #define FUNC(ret, name, args, cargs)		\
   ret go_##name args;
 #define VOID_FUNC FUNC
-#include "goopenpgpfuncs.h"
+#include "gosequoiafuncs.h"
 #undef VOID_FUNC
 #undef FUNC
 
-#define GO_OPENPGP_FUNC(name) go_##name
+#define GO_SEQUOIA_FUNC(name) go_##name
 
 #else
 
-#define GO_OPENPGP_FUNC(name) name
+#define GO_SEQUOIA_FUNC(name) name
 
-#endif /* GO_OPENPGP_ENABLE_DLOPEN */
+#endif /* GO_SEQUOIA_ENABLE_DLOPEN */
 
 /* Ensure SONAME to be loaded with dlopen FLAGS, and all the necessary
  * symbols are resolved.
@@ -35,20 +35,20 @@
  * Note that this function is NOT thread-safe; when calling it from
  * multi-threaded programs, protect it with a locking mechanism.
  */
-int go_openpgp_ensure_library (const char *soname, int flags);
+int go_sequoia_ensure_library (const char *soname, int flags);
 
 /* Unload library and reset symbols.
  *
  * Note that this function is NOT thread-safe; when calling it from
  * multi-threaded programs, protect it with a locking mechanism.
  */
-void go_openpgp_unload_library (void);
+void go_sequoia_unload_library (void);
 
 /* Return 1 if the library is loaded and usable.
  *
  * Note that this function is NOT thread-safe; when calling it from
  * multi-threaded programs, protect it with a locking mechanism.
  */
-unsigned go_openpgp_is_usable (void);
+unsigned go_sequoia_is_usable (void);
 
-#endif /* GO_OPENPGP_H_ */
+#endif /* GO_SEQUOIA_H_ */

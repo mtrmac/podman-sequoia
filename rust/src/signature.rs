@@ -20,15 +20,15 @@ use std::ptr;
 use std::slice;
 use std::sync::Arc;
 
-use crate::{set_error_from, OpenpgpError};
+use crate::{set_error_from, SequoiaError};
 
-pub struct OpenpgpMechanism<'a> {
+pub struct SequoiaMechanism<'a> {
     keystore: sequoia_keystore::Keystore,
     certstore: Arc<sequoia_cert_store::CertStore<'a>>,
     policy: StandardPolicy<'a>,
 }
 
-impl<'a> OpenpgpMechanism<'a> {
+impl<'a> SequoiaMechanism<'a> {
     fn from_directory(dir: impl AsRef<Path>) -> Result<Self, anyhow::Error> {
         let home_dir = if dir.as_ref() == Path::new("") {
             let data_dir = dirs::data_dir()
@@ -72,7 +72,7 @@ impl<'a> OpenpgpMechanism<'a> {
         })
     }
 
-    fn import_keys(&mut self, blob: &[u8]) -> Result<OpenpgpImportResult, anyhow::Error> {
+    fn import_keys(&mut self, blob: &[u8]) -> Result<SequoiaImportResult, anyhow::Error> {
         let mut softkeys = None;
         for mut backend in self.keystore.backends()?.into_iter() {
             if backend.id()? == "softkeys" {
@@ -103,7 +103,7 @@ impl<'a> OpenpgpMechanism<'a> {
             self.certstore
                 .update(Arc::new(sequoia_cert_store::LazyCert::from(cert)))?;
         }
-        Ok(OpenpgpImportResult { key_handles })
+        Ok(SequoiaImportResult { key_handles })
     }
 
     fn sign(
@@ -158,7 +158,7 @@ impl<'a> OpenpgpMechanism<'a> {
         Ok(sink)
     }
 
-    fn verify(&mut self, signature: &[u8]) -> Result<OpenpgpVerificationResult, anyhow::Error> {
+    fn verify(&mut self, signature: &[u8]) -> Result<SequoiaVerificationResult, anyhow::Error> {
         if signature.is_empty() {
             return Err(anyhow::anyhow!("empty signature"));
         }
@@ -178,7 +178,7 @@ impl<'a> OpenpgpMechanism<'a> {
         assert!(v.message_processed());
 
         match &v.helper_ref().signer {
-            Some(signer) => Ok(OpenpgpVerificationResult {
+            Some(signer) => Ok(SequoiaVerificationResult {
                 content,
                 signer: CString::new(signer.fingerprint().to_hex().as_bytes()).unwrap(),
             }),
@@ -231,28 +231,28 @@ impl<'a> VerificationHelper for Helper<'a> {
     }
 }
 
-pub struct OpenpgpSignature {
+pub struct SequoiaSignature {
     data: Vec<u8>,
 }
 
-pub struct OpenpgpVerificationResult {
+pub struct SequoiaVerificationResult {
     content: Vec<u8>,
     signer: CString,
 }
 
 #[derive(Default)]
-pub struct OpenpgpImportResult {
+pub struct SequoiaImportResult {
     key_handles: Vec<CString>,
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn openpgp_mechanism_new_from_directory<'a>(
+pub unsafe extern "C" fn sequoia_mechanism_new_from_directory<'a>(
     dir_ptr: *const c_char,
-    err_ptr: *mut *mut OpenpgpError,
-) -> *mut OpenpgpMechanism<'a> {
+    err_ptr: *mut *mut SequoiaError,
+) -> *mut SequoiaMechanism<'a> {
     let c_dir = CStr::from_ptr(dir_ptr);
     let os_dir = OsStr::from_bytes(c_dir.to_bytes());
-    match OpenpgpMechanism::from_directory(os_dir) {
+    match SequoiaMechanism::from_directory(os_dir) {
         Ok(mechanism) => Box::into_raw(Box::new(mechanism)),
         Err(e) => {
             set_error_from(err_ptr, e);
@@ -262,10 +262,10 @@ pub unsafe extern "C" fn openpgp_mechanism_new_from_directory<'a>(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn openpgp_mechanism_new_ephemeral<'a>(
-    err_ptr: *mut *mut OpenpgpError,
-) -> *mut OpenpgpMechanism<'a> {
-    match OpenpgpMechanism::ephemeral() {
+pub unsafe extern "C" fn sequoia_mechanism_new_ephemeral<'a>(
+    err_ptr: *mut *mut SequoiaError,
+) -> *mut SequoiaMechanism<'a> {
+    match SequoiaMechanism::ephemeral() {
         Ok(mechanism) => Box::into_raw(Box::new(mechanism)),
         Err(e) => {
             set_error_from(err_ptr, e);
@@ -275,18 +275,18 @@ pub unsafe extern "C" fn openpgp_mechanism_new_ephemeral<'a>(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn openpgp_mechanism_free(mechanism_ptr: *mut OpenpgpMechanism) {
+pub unsafe extern "C" fn sequoia_mechanism_free(mechanism_ptr: *mut SequoiaMechanism) {
     drop(Box::from_raw(mechanism_ptr))
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn openpgp_signature_free(signature_ptr: *mut OpenpgpSignature) {
+pub unsafe extern "C" fn sequoia_signature_free(signature_ptr: *mut SequoiaSignature) {
     drop(Box::from_raw(signature_ptr))
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn openpgp_signature_get_data(
-    signature_ptr: *const OpenpgpSignature,
+pub unsafe extern "C" fn sequoia_signature_get_data(
+    signature_ptr: *const SequoiaSignature,
     data_len: *mut size_t,
 ) -> *const u8 {
     assert!(!signature_ptr.is_null());
@@ -295,16 +295,16 @@ pub unsafe extern "C" fn openpgp_signature_get_data(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn openpgp_verification_result_free(
-    result_ptr: *mut OpenpgpVerificationResult,
+pub unsafe extern "C" fn sequoia_verification_result_free(
+    result_ptr: *mut SequoiaVerificationResult,
 ) {
     assert!(!result_ptr.is_null());
     drop(Box::from_raw(result_ptr))
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn openpgp_verification_result_get_content(
-    result_ptr: *const OpenpgpVerificationResult,
+pub unsafe extern "C" fn sequoia_verification_result_get_content(
+    result_ptr: *const SequoiaVerificationResult,
     data_len: *mut size_t,
 ) -> *const u8 {
     assert!(!result_ptr.is_null());
@@ -313,22 +313,22 @@ pub unsafe extern "C" fn openpgp_verification_result_get_content(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn openpgp_verification_result_get_signer(
-    result_ptr: *const OpenpgpVerificationResult,
+pub unsafe extern "C" fn sequoia_verification_result_get_signer(
+    result_ptr: *const SequoiaVerificationResult,
 ) -> *const c_char {
     assert!(!result_ptr.is_null());
     (*result_ptr).signer.as_ptr()
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn openpgp_sign(
-    mechanism_ptr: *mut OpenpgpMechanism,
+pub unsafe extern "C" fn sequoia_sign(
+    mechanism_ptr: *mut SequoiaMechanism,
     key_handle_ptr: *const c_char,
     password_ptr: *const c_char,
     data_ptr: *const u8,
     data_len: size_t,
-    err_ptr: *mut *mut OpenpgpError,
-) -> *mut OpenpgpSignature {
+    err_ptr: *mut *mut SequoiaError,
+) -> *mut SequoiaSignature {
     assert!(!mechanism_ptr.is_null());
     assert!(!key_handle_ptr.is_null());
     assert!(!data_ptr.is_null());
@@ -355,7 +355,7 @@ pub unsafe extern "C" fn openpgp_sign(
 
     let data = slice::from_raw_parts(data_ptr, data_len);
     match (*mechanism_ptr).sign(key_handle, password, data) {
-        Ok(signature) => Box::into_raw(Box::new(OpenpgpSignature { data: signature })),
+        Ok(signature) => Box::into_raw(Box::new(SequoiaSignature { data: signature })),
         Err(e) => {
             set_error_from(err_ptr, e);
             ptr::null_mut()
@@ -364,12 +364,12 @@ pub unsafe extern "C" fn openpgp_sign(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn openpgp_verify(
-    mechanism_ptr: *mut OpenpgpMechanism,
+pub unsafe extern "C" fn sequoia_verify(
+    mechanism_ptr: *mut SequoiaMechanism,
     signature_ptr: *const u8,
     signature_len: size_t,
-    err_ptr: *mut *mut OpenpgpError,
-) -> *mut OpenpgpVerificationResult {
+    err_ptr: *mut *mut SequoiaError,
+) -> *mut SequoiaVerificationResult {
     assert!(!mechanism_ptr.is_null());
 
     let signature = slice::from_raw_parts(signature_ptr, signature_len);
@@ -383,13 +383,13 @@ pub unsafe extern "C" fn openpgp_verify(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn openpgp_import_result_free(result_ptr: *mut OpenpgpImportResult) {
+pub unsafe extern "C" fn sequoia_import_result_free(result_ptr: *mut SequoiaImportResult) {
     drop(Box::from_raw(result_ptr))
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn openpgp_import_result_get_count(
-    result_ptr: *const OpenpgpImportResult,
+pub unsafe extern "C" fn sequoia_import_result_get_count(
+    result_ptr: *const SequoiaImportResult,
 ) -> size_t {
     assert!(!result_ptr.is_null());
 
@@ -397,10 +397,10 @@ pub unsafe extern "C" fn openpgp_import_result_get_count(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn openpgp_import_result_get_content(
-    result_ptr: *const OpenpgpImportResult,
+pub unsafe extern "C" fn sequoia_import_result_get_content(
+    result_ptr: *const SequoiaImportResult,
     index: size_t,
-    err_ptr: *mut *mut OpenpgpError,
+    err_ptr: *mut *mut SequoiaError,
 ) -> *const c_char {
     assert!(!result_ptr.is_null());
 
@@ -412,17 +412,17 @@ pub unsafe extern "C" fn openpgp_import_result_get_content(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn openpgp_import_keys(
-    mechanism_ptr: *mut OpenpgpMechanism,
+pub unsafe extern "C" fn sequoia_import_keys(
+    mechanism_ptr: *mut SequoiaMechanism,
     blob_ptr: *const u8,
     blob_len: size_t,
-    err_ptr: *mut *mut OpenpgpError,
-) -> *mut OpenpgpImportResult {
+    err_ptr: *mut *mut SequoiaError,
+) -> *mut SequoiaImportResult {
     assert!(!mechanism_ptr.is_null());
 
     let blob = slice::from_raw_parts(blob_ptr, blob_len);
     if blob.is_empty() {
-        let result = OpenpgpImportResult {
+        let result = SequoiaImportResult {
             ..Default::default()
         };
         return Box::into_raw(Box::new(result));

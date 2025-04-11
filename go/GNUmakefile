@@ -12,21 +12,16 @@ endif
 
 all:: stamp_c_files
 
-podman_openpgp_h = \
-	../rust/target/${PROFILE}/include/podman/openpgp.h
-dlwrap_files = \
-	../rust/target/${PROFILE}/dlwrap/goopenpgp.c \
-	../rust/target/${PROFILE}/dlwrap/goopenpgp.h \
-	../rust/target/${PROFILE}/dlwrap/goopenpgpfuncs.h
+c_files = \
+	../rust/target/${PROFILE}/bindings/sequoia.h \
+	../rust/target/${PROFILE}/bindings/gosequoia.c \
+	../rust/target/${PROFILE}/bindings/gosequoia.h \
+	../rust/target/${PROFILE}/bindings/gosequoiafuncs.h
 
 $(c_files): stamp_c_files
 stamp_c_files:
-	mkdir -p sequoia/include/podman && \
-	cp $(podman_openpgp_h) sequoia/include/podman && \
-	cp $(dlwrap_files) sequoia && \
+	cp $(c_files) sequoia && \
 	touch $@
 
 maintainer-clean::
-	rm -f $(podman_openpgp_h)
-	rm -f $(dlwrap_files)
-	rm -f stamp_c_files
+	rm -f $(c_files) stamp_c_files

@@ -9,51 +9,51 @@
 #include "config.h"
 #endif
 
-#include "goopenpgp.h"
+#include "gosequoia.h"
 
-#if defined(GO_OPENPGP_ENABLE_DLOPEN) && GO_OPENPGP_ENABLE_DLOPEN
+#if defined(GO_SEQUOIA_ENABLE_DLOPEN) && GO_SEQUOIA_ENABLE_DLOPEN
 
 #include <assert.h>
 #include <dlfcn.h>
 #include <errno.h>
 #include <stdlib.h>
 
-/* If OPENPGP_SONAME is defined, dlopen handle can be automatically
+/* If SEQUOIA_SONAME is defined, dlopen handle can be automatically
  * set; otherwise, the caller needs to call
- * go_openpgp_ensure_library with soname determined at run time.
+ * go_sequoia_ensure_library with soname determined at run time.
  */
-#ifdef OPENPGP_SONAME
+#ifdef SEQUOIA_SONAME
 
 static void
 ensure_library (void)
 {
-  if (go_openpgp_ensure_library (OPENPGP_SONAME, RTLD_LAZY | RTLD_LOCAL) < 0)
+  if (go_sequoia_ensure_library (SEQUOIA_SONAME, RTLD_LAZY | RTLD_LOCAL) < 0)
     abort ();
 }
 
-#if defined(GO_OPENPGP_ENABLE_PTHREAD) && GO_OPENPGP_ENABLE_PTHREAD
+#if defined(GO_SEQUOIA_ENABLE_PTHREAD) && GO_SEQUOIA_ENABLE_PTHREAD
 #include <pthread.h>
 
 static pthread_once_t dlopen_once = PTHREAD_ONCE_INIT;
 
 #define ENSURE_LIBRARY pthread_once(&dlopen_once, ensure_library)
 
-#else /* GO_OPENPGP_ENABLE_PTHREAD */
+#else /* GO_SEQUOIA_ENABLE_PTHREAD */
 
 #define ENSURE_LIBRARY do {	    \
-    if (!go_openpgp_dlhandle) \
+    if (!go_sequoia_dlhandle) \
       ensure_library();		    \
   } while (0)
 
-#endif /* !GO_OPENPGP_ENABLE_PTHREAD */
+#endif /* !GO_SEQUOIA_ENABLE_PTHREAD */
 
-#else /* OPENPGP_SONAME */
+#else /* SEQUOIA_SONAME */
 
 #define ENSURE_LIBRARY do {} while (0)
 
-#endif /* !OPENPGP_SONAME */
+#endif /* !SEQUOIA_SONAME */
 
-static void *go_openpgp_dlhandle;
+static void *go_sequoia_dlhandle;
 
 /* Define redirection symbols */
 #pragma GCC diagnostic push
@@ -61,13 +61,13 @@ static void *go_openpgp_dlhandle;
 
 #if (2 <= __GNUC__ || (4 <= __clang_major__))
 #define FUNC(ret, name, args, cargs)			\
-  static __typeof__(name)(*go_openpgp_sym_##name);
+  static __typeof__(name)(*go_sequoia_sym_##name);
 #else
 #define FUNC(ret, name, args, cargs)		\
-  static ret(*go_openpgp_sym_##name)args;
+  static ret(*go_sequoia_sym_##name)args;
 #endif
 #define VOID_FUNC FUNC
-#include "goopenpgpfuncs.h"
+#include "gosequoiafuncs.h"
 #undef VOID_FUNC
 #undef FUNC
 
@@ -81,17 +81,17 @@ static void *go_openpgp_dlhandle;
 ret go_##name args           \
 {					    \
   ENSURE_LIBRARY;			    \
-  assert (go_openpgp_sym_##name);	    \
-  return go_openpgp_sym_##name cargs;	    \
+  assert (go_sequoia_sym_##name);	    \
+  return go_sequoia_sym_##name cargs;	    \
 }
 #define VOID_FUNC(ret, name, args, cargs)   \
 ret go_##name args           \
 {					    \
   ENSURE_LIBRARY;			    \
-  assert (go_openpgp_sym_##name);	    \
-  go_openpgp_sym_##name cargs;		    \
+  assert (go_sequoia_sym_##name);	    \
+  go_sequoia_sym_##name cargs;		    \
 }
-#include "goopenpgpfuncs.h"
+#include "gosequoiafuncs.h"
 #undef VOID_FUNC
 #undef FUNC
 
@@ -102,7 +102,7 @@ ensure_symbol (const char *name, void **symp)
 {
   if (!*symp)
     {
-      void *sym = dlsym (go_openpgp_dlhandle, name);
+      void *sym = dlsym (go_sequoia_dlhandle, name);
       if (!sym)
 	return -EINVAL;
       *symp = sym;
@@ -111,19 +111,19 @@ ensure_symbol (const char *name, void **symp)
 }
 
 int
-go_openpgp_ensure_library (const char *soname, int flags)
+go_sequoia_ensure_library (const char *soname, int flags)
 {
   int err;
 
-  if (!go_openpgp_dlhandle)
+  if (!go_sequoia_dlhandle)
     {
-      go_openpgp_dlhandle = dlopen (soname, flags);
-      if (!go_openpgp_dlhandle)
+      go_sequoia_dlhandle = dlopen (soname, flags);
+      if (!go_sequoia_dlhandle)
 	return -EINVAL;
     }
 
 #define ENSURE_SYMBOL(name)					\
-  ensure_symbol(#name, (void **)&go_openpgp_sym_##name)
+  ensure_symbol(#name, (void **)&go_sequoia_sym_##name)
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-macros"
@@ -132,11 +132,12 @@ go_openpgp_ensure_library (const char *soname, int flags)
   err = ENSURE_SYMBOL(name);			\
   if (err < 0)					\
     {						\
-      go_openpgp_dlhandle = NULL;		\
+      dlclose (go_sequoia_dlhandle);	\
+      go_sequoia_dlhandle = NULL;		\
       return err;				\
     }
 #define VOID_FUNC FUNC
-#include "goopenpgpfuncs.h"
+#include "gosequoiafuncs.h"
 #undef VOID_FUNC
 #undef FUNC
 
@@ -147,21 +148,21 @@ go_openpgp_ensure_library (const char *soname, int flags)
 }
 
 void
-go_openpgp_unload_library (void)
+go_sequoia_unload_library (void)
 {
-  if (go_openpgp_dlhandle)
+  if (go_sequoia_dlhandle)
     {
-      dlclose (go_openpgp_dlhandle);
-      go_openpgp_dlhandle = NULL;
+      dlclose (go_sequoia_dlhandle);
+      go_sequoia_dlhandle = NULL;
     }
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-macros"
 
 #define FUNC(ret, name, args, cargs)		\
-  go_openpgp_sym_##name = NULL;
+  go_sequoia_sym_##name = NULL;
 #define VOID_FUNC FUNC
-#include "goopenpgpfuncs.h"
+#include "gosequoiafuncs.h"
 #undef VOID_FUNC
 #undef FUNC
 
@@ -169,15 +170,15 @@ go_openpgp_unload_library (void)
 }
 
 unsigned
-go_openpgp_is_usable (void)
+go_sequoia_is_usable (void)
 {
-  return go_openpgp_dlhandle != NULL;
+  return go_sequoia_dlhandle != NULL;
 }
 
-#else /* GO_OPENPGP_ENABLE_DLOPEN */
+#else /* GO_SEQUOIA_ENABLE_DLOPEN */
 
 int
-go_openpgp_ensure_library (const char *soname, int flags)
+go_sequoia_ensure_library (const char *soname, int flags)
 {
   (void) soname;
   (void) flags;
@@ -185,15 +186,15 @@ go_openpgp_ensure_library (const char *soname, int flags)
 }
 
 void
-go_openpgp_unload_library (void)
+go_sequoia_unload_library (void)
 {
 }
 
 unsigned
-go_openpgp_is_usable (void)
+go_sequoia_is_usable (void)
 {
   /* The library is linked at build time, thus always usable */
   return 1;
 }
 
-#endif /* !GO_OPENPGP_ENABLE_DLOPEN */
+#endif /* !GO_SEQUOIA_ENABLE_DLOPEN */

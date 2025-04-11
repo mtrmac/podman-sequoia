@@ -20,11 +20,11 @@ $ cd -
 
 ```console
 $ cd go/sequoia
-$ CGO_CFLAGS=-I$PWD/../../rust/target/release/include \
+$ CGO_CFLAGS=-I$PWD/../../rust/target/release/bindings \
   CGO_LDFLAGS=-L$PWD/../../rust/target/release \
   go build
 $ LD_LIBRARY_PATH=$PWD/../../rust/target/release \
-  CGO_CFLAGS=-I$PWD/../../rust/target/release/include \
+  CGO_CFLAGS=-I$PWD/../../rust/target/release/bindings \
   CGO_LDFLAGS=-L$PWD/../../rust/target/release \
   go test
 $ cd -

@@ -11,8 +11,38 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
+	"strings"
 	"testing"
 )
+
+func checkSqVersion(expectedMajor int, expectedMinor int, expectedPatch int) error {
+	cmd := exec.Command("sq", "version")
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	output, err := io.ReadAll(stderr)
+	if err := cmd.Wait(); err != nil {
+		return err
+	}
+	re := regexp.MustCompile("sq ([0-9]+)\\.([0-9]+)\\.([0-9]+)")
+	lines := strings.Split(string(output[:]), "\n")
+	matches := re.FindStringSubmatch(lines[0])
+	if matches == nil {
+		return errors.New("unable to parse sq version")
+	}
+	major, _ := strconv.Atoi(matches[1])
+	minor, _ := strconv.Atoi(matches[2])
+	patch, _ := strconv.Atoi(matches[3])
+	if major != expectedMajor || minor < expectedMinor || (minor == expectedMinor && patch < expectedPatch) {
+		return errors.New("sq 1.3.0 or later is required")
+	}
+	return nil
+}
 
 func generateKey(dir string, email string) (string, error) {
 	cmd := exec.Command("sq", "--home", dir, "key", "generate", "--userid", fmt.Sprintf("<%s>", email), "--own-key", "--without-password")
@@ -50,6 +80,9 @@ func exportCert(dir string, fingerprint string) ([]byte, error) {
 }
 
 func TestNewMechanismFromDirectory(t *testing.T) {
+	if err := checkSqVersion(1, 3, 0); err != nil {
+		t.Skipf("sq not usable: %v", err)
+	}
 	dir := t.TempDir()
 	_, err := sequoia.NewMechanismFromDirectory(dir)
 	if err != nil {
@@ -66,6 +99,9 @@ func TestNewMechanismFromDirectory(t *testing.T) {
 }
 
 func TestNewEphemeralMechanism(t *testing.T) {
+	if err := checkSqVersion(1, 3, 0); err != nil {
+		t.Skipf("sq not usable: %v", err)
+	}
 	dir := t.TempDir()
 	fingerprint, err := generateKey(dir, "foo@example.org")
 	if err != nil {
@@ -84,6 +120,9 @@ func TestNewEphemeralMechanism(t *testing.T) {
 }
 
 func TestGenerateSignVerify(t *testing.T) {
+	if err := checkSqVersion(1, 3, 0); err != nil {
+		t.Skipf("sq not usable: %v", err)
+	}
 	dir := t.TempDir()
 	fingerprint, err := generateKey(dir, "foo@example.org")
 	if err != nil {
@@ -111,6 +150,9 @@ func TestGenerateSignVerify(t *testing.T) {
 }
 
 func TestImportSignVerify(t *testing.T) {
+	if err := checkSqVersion(1, 3, 0); err != nil {
+		t.Skipf("sq not usable: %v", err)
+	}
 	dir := t.TempDir()
 	fingerprint, err := generateKey(dir, "foo@example.org")
 	if err != nil {
@@ -151,6 +193,9 @@ func TestImportSignVerify(t *testing.T) {
 }
 
 func TestImportSignVerifyEphemeral(t *testing.T) {
+	if err := checkSqVersion(1, 3, 0); err != nil {
+		t.Skipf("sq not usable: %v", err)
+	}
 	dir := t.TempDir()
 	fingerprint, err := generateKey(dir, "foo@example.org")
 	if err != nil {

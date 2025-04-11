@@ -6,41 +6,41 @@ use std::ffi::CString;
 use std::io;
 
 #[repr(C)]
-pub enum OpenpgpErrorKind {
+pub enum SequoiaErrorKind {
     Unknown,
     InvalidArgument,
     IoError,
 }
 
 #[repr(C)]
-pub struct OpenpgpError {
-    kind: OpenpgpErrorKind,
+pub struct SequoiaError {
+    kind: SequoiaErrorKind,
     message: *const c_char,
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn openpgp_error_free(err_ptr: *mut OpenpgpError) {
+pub unsafe extern "C" fn sequoia_error_free(err_ptr: *mut SequoiaError) {
     drop(Box::from_raw(err_ptr))
 }
 
-pub unsafe fn set_error(err_ptr: *mut *mut OpenpgpError, kind: OpenpgpErrorKind, message: &str) {
+pub unsafe fn set_error(err_ptr: *mut *mut SequoiaError, kind: SequoiaErrorKind, message: &str) {
     if !err_ptr.is_null() {
-        *err_ptr = Box::into_raw(Box::new(OpenpgpError {
+        *err_ptr = Box::into_raw(Box::new(SequoiaError {
             kind,
             message: CString::new(message).unwrap().into_raw(),
         }));
     }
 }
 
-pub unsafe fn set_error_from(err_ptr: *mut *mut OpenpgpError, err: anyhow::Error) {
+pub unsafe fn set_error_from(err_ptr: *mut *mut SequoiaError, err: anyhow::Error) {
     if !err_ptr.is_null() {
         let kind = if err.is::<io::Error>() {
-            OpenpgpErrorKind::IoError
+            SequoiaErrorKind::IoError
         } else {
-            OpenpgpErrorKind::Unknown
+            SequoiaErrorKind::Unknown
         };
 
-        *err_ptr = Box::into_raw(Box::new(OpenpgpError {
+        *err_ptr = Box::into_raw(Box::new(SequoiaError {
             kind,
             message: CString::from_vec_unchecked(err.to_string().into()).into_raw(),
         }));

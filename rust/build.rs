@@ -26,9 +26,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let profile = env::var_os("PROFILE").expect("PROFILE not set");
     build_dir.push(&profile);
 
-    let include = build_dir.join("include/podman/openpgp.h");
+    let bindings_dir = build_dir.join("bindings");
+    let include = bindings_dir.join("sequoia.h");
 
-    // Generate ${CARGO_TARGET_DIR}/${PROFILE}/openpgp.h
+    // Generate ${CARGO_TARGET_DIR}/${PROFILE}/bindings/sequoia.h
     cbindgen::Builder::new()
         .with_crate(&src)
         .with_language(cbindgen::Language::C)
@@ -40,15 +41,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Generate dlwrap files
     dlwrap::Builder::new(&include)
-        .output_dir(build_dir.join("dlwrap"))
-        .symbol_regex(&Regex::new("^openpgp_")?)
+        .output_dir(&bindings_dir)
+        .symbol_regex(&Regex::new("^sequoia_")?)
 	.license("SPDX-License-Identifier: LGPL-2.0-or-later")
-	.loader_basename("goopenpgp")
-	.soname("OPENPGP_SONAME")
-	.prefix("go_openpgp")
+	.loader_basename("gosequoia")
+	.soname("SEQUOIA_SONAME")
+	.prefix("go_sequoia")
 	.function_prefix("go")
-	.header_guard("GO_OPENPGP_H_")
-	.include("<podman/openpgp.h>")
+	.header_guard("GO_SEQUOIA_H_")
+	.include("<sequoia.h>")
         .generate()?;
 
     let prefix = env::var_os("PREFIX");
