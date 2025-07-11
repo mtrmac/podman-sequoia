@@ -1,7 +1,7 @@
 /*
  * This file was automatically generated from sequoia.h,
  * which is covered by the following license:
- * SPDX-License-Identifier: LGPL-2.0-or-later
+ * SPDX-License-Identifier: Apache-2.0
  */
 VOID_FUNC(void, sequoia_error_free, (struct SequoiaError *err_ptr), (err_ptr))
 FUNC(struct SequoiaMechanism *, sequoia_mechanism_new_from_directory, (const char *dir_ptr, struct SequoiaError **err_ptr), (dir_ptr, err_ptr))
@@ -18,3 +18,4 @@ VOID_FUNC(void, sequoia_import_result_free, (struct SequoiaImportResult *result_
 FUNC(size_t, sequoia_import_result_get_count, (const struct SequoiaImportResult *result_ptr), (result_ptr))
 FUNC(const char *, sequoia_import_result_get_content, (const struct SequoiaImportResult *result_ptr, size_t index, struct SequoiaError **err_ptr), (result_ptr, index, err_ptr))
 FUNC(struct SequoiaImportResult *, sequoia_import_keys, (struct SequoiaMechanism *mechanism_ptr, const uint8_t *blob_ptr, size_t blob_len, struct SequoiaError **err_ptr), (mechanism_ptr, blob_ptr, blob_len, err_ptr))
+FUNC(int, sequoia_set_logger_consumer, (void (*consumer)(enum SequoiaLogLevel, const char *), struct SequoiaError **err_ptr), (consumer, err_ptr))
