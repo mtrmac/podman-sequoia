@@ -1,7 +1,7 @@
-# image-sequoia
+# podman-sequoia
 
 This directory contains the source code of a C shared library
-(`libimage_sequoia.so`) that enables to use [sequoia-pgp] as a signing
+(`libpodman_sequoia.so`) that enables to use [sequoia-pgp] as a signing
 backend.
 
 For building, you need rustc (version 1.79 or later), cargo, and
@@ -21,7 +21,7 @@ $ PREFIX=/usr LIBDIR="\${prefix}/lib64" cargo build --release
 Just copy the shared library in the library search path:
 
 ```console
-$ sudo cp -a rust/target/release/libimage_sequoia.so* /usr/lib64
+$ sudo cp -a rust/target/release/libpodman_sequoia.so* /usr/lib64
 ```
 
 ## Testing
