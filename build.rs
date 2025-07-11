@@ -80,7 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let libdir_resolved = libdir.replace("${prefix}", prefix);
 
     let linker_lines = cdylib_link_lines::shared_object_link_args(
-        "image_sequoia",
+        "podman_sequoia",
         &major,
         &minor,
         &patch,
@@ -101,10 +101,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut create = true;
 
         let mut link = build_dir.clone();
-        link.push(format!("libimage_sequoia.so.{major}"));
+        link.push(format!("libpodman_sequoia.so.{major}"));
 
         if let Ok(current) = std::fs::read_link(&link) {
-            if current.to_str() == Some("libimage_sequoia.so") {
+            if current.to_str() == Some("libpodman_sequoia.so") {
                 // Do nothing.
                 create = false;
             } else {
@@ -114,7 +114,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         if create {
-            std::os::unix::fs::symlink("libimage_sequoia.so", link)?;
+            std::os::unix::fs::symlink("libpodman_sequoia.so", link)?;
         }
     }
     Ok(())
