@@ -437,13 +437,15 @@ pub unsafe extern "C" fn sequoia_import_keys(
 
 // SequoiaLogLevel is a C-compatible version of log::Level.
 #[repr(C)]
+/// cbindgen:rename-all=ScreamingSnakeCase
+/// cbindgen:prefix-with-name
 pub enum SequoiaLogLevel {
-    SequoiaLogLevelUnknown,
-    SequoiaLogLevelError,
-    SequoiaLogLevelWarn,
-    SequoiaLogLevelInfo,
-    SequoiaLogLevelDebug,
-    SequoiaLogLevelTrace,
+    Unknown,
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
 }
 
 // SequoiaLogger implements log::Log.
@@ -458,11 +460,11 @@ impl log::Log for SequoiaLogger {
 
     fn log(&self, record: &log::Record) {
         let level = match record.level() {
-            log::Level::Error => SequoiaLogLevel::SequoiaLogLevelError,
-            log::Level::Warn => SequoiaLogLevel::SequoiaLogLevelWarn,
-            log::Level::Info => SequoiaLogLevel::SequoiaLogLevelInfo,
-            log::Level::Debug => SequoiaLogLevel::SequoiaLogLevelDebug,
-            log::Level::Trace => SequoiaLogLevel::SequoiaLogLevelTrace,
+            log::Level::Error => SequoiaLogLevel::Error,
+            log::Level::Warn => SequoiaLogLevel::Warn,
+            log::Level::Info => SequoiaLogLevel::Info,
+            log::Level::Debug => SequoiaLogLevel::Debug,
+            log::Level::Trace => SequoiaLogLevel::Trace,
         };
         let text = match CString::new(record.args().to_string()) {
             Ok(text) => text,

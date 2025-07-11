@@ -1614,25 +1614,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "image-sequoia"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "cbindgen",
- "cdylib-link-lines",
- "dirs 5.0.1",
- "dlwrap",
- "libc",
- "log",
- "regex",
- "sequoia-cert-store",
- "sequoia-directories",
- "sequoia-keystore",
- "sequoia-openpgp",
- "sequoia-policy-config",
-]
-
-[[package]]
 name = "indexmap"
 version = "1.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2249,6 +2230,25 @@ name = "pkg-config"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
+
+[[package]]
+name = "podman-sequoia"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cbindgen",
+ "cdylib-link-lines",
+ "dirs 5.0.1",
+ "dlwrap",
+ "libc",
+ "log",
+ "regex",
+ "sequoia-cert-store",
+ "sequoia-directories",
+ "sequoia-keystore",
+ "sequoia-openpgp",
+ "sequoia-policy-config",
+]
 
 [[package]]
 name = "polyval"

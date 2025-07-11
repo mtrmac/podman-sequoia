@@ -6,6 +6,8 @@ use std::ffi::CString;
 use std::io;
 
 #[repr(C)]
+/// cbindgen:rename-all=ScreamingSnakeCase
+/// cbindgen:prefix-with-name
 pub enum SequoiaErrorKind {
     Unknown,
     InvalidArgument,
