@@ -10,10 +10,15 @@ openssl-devel. For testing, you also need the `sq` command (version
 
 ## Building
 
-To build the shared library and bindings, do:
+To build the shared library and bindings on Linux, do:
 
 ```console
 $ PREFIX=/usr LIBDIR="\${prefix}/lib64" cargo build --release
+```
+
+On macOS, prefix the command with one more value:
+```console
+$ DYLD_FALLBACK_LIBRARY_PATH="$(xcode-select --print-path)/Toolchains/XcodeDefault.xctoolchain/usr/lib/" PREFIX=…
 ```
 
 ## Installing
@@ -21,7 +26,7 @@ $ PREFIX=/usr LIBDIR="\${prefix}/lib64" cargo build --release
 Just copy the shared library in the library search path:
 
 ```console
-$ sudo cp -a rust/target/release/libpodman_sequoia.so* /usr/lib64
+$ sudo cp -a rust/target/release/libpodman_sequoia.* /usr/lib64
 ```
 
 ## Testing
