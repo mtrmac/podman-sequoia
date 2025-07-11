@@ -13,10 +13,10 @@ endif
 all:: stamp_c_files
 
 c_files = \
-	../rust/target/${PROFILE}/bindings/sequoia.h \
-	../rust/target/${PROFILE}/bindings/gosequoia.c \
-	../rust/target/${PROFILE}/bindings/gosequoia.h \
-	../rust/target/${PROFILE}/bindings/gosequoiafuncs.h
+	../target/${PROFILE}/bindings/sequoia.h \
+	../target/${PROFILE}/bindings/gosequoia.c \
+	../target/${PROFILE}/bindings/gosequoia.h \
+	../target/${PROFILE}/bindings/gosequoiafuncs.h
 
 $(c_files): stamp_c_files
 stamp_c_files:

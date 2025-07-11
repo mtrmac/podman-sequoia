@@ -2,7 +2,7 @@
 
 podman-sequoia enables to use [sequoia-pgp] as an OpenPGP backend in
 the podman's image signing [mechanism]. It consists of a C shared
-library (in `rust/`) and a Go binding over it (in `go/`).
+library (in ``) and a Go binding over it (in `go/`).
 
 ## Building
 
@@ -12,20 +12,18 @@ openssl-devel.
 The following steps should be taken to build the binaries locally.
 
 ```console
-$ cd rust
 $ PREFIX=/usr LIBDIR="\${prefix}/lib64" \
   cargo build --release
-$ cd -
 ```
 
 ```console
 $ cd go/sequoia
-$ CGO_CFLAGS=-I$PWD/../../rust/target/release/bindings \
-  CGO_LDFLAGS=-L$PWD/../../rust/target/release \
+$ CGO_CFLAGS=-I$PWD/../../target/release/bindings \
+  CGO_LDFLAGS=-L$PWD/../../target/release \
   go build
-$ LD_LIBRARY_PATH=$PWD/../../rust/target/release \
-  CGO_CFLAGS=-I$PWD/../../rust/target/release/bindings \
-  CGO_LDFLAGS=-L$PWD/../../rust/target/release \
+$ LD_LIBRARY_PATH=$PWD/../../target/release \
+  CGO_CFLAGS=-I$PWD/../../target/release/bindings \
+  CGO_LDFLAGS=-L$PWD/../../target/release \
   go test
 $ cd -
 ```
@@ -37,7 +35,7 @@ To actually make the Go sequoia module useful, the
 system.
 
 ```console
-$ sudo cp -a rust/target/release/libpodman_sequoia.so* /usr/lib64
+$ sudo cp -a target/release/libpodman_sequoia.so* /usr/lib64
 ```
 
 ## License
