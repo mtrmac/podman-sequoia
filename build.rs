@@ -7,14 +7,8 @@ use anyhow::Result;
 use regex::Regex;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Generate
-    // ${CARGO_TARGET_DIR}/${PROFILE}/podman-sequoia{-uninstalled}.pc
-    // from ${SRC}/podman-sequoia.pc.in.
-
     let src = env::current_dir()?;
 
-    // Location of the build directory (e.g.,
-    // `/tmp/podman-sequoia/debug`).
     let mut build_dir = PathBuf::from(&src);
     if let Some(target_dir) = env::var_os("CARGO_TARGET_DIR") {
         // Note: if CARGO_TARGET_DIR is absolute, this will first
@@ -33,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     cbindgen::Builder::new()
         .with_crate(&src)
         .with_language(cbindgen::Language::C)
-        .with_header("// SPDX-License-Identifier: LGPL-2.0-or-later")
+        .with_header("// SPDX-License-Identifier: Apache-2.0")
         .with_pragma_once(true)
         .generate()
         .expect("Unable to generate bindings")
@@ -43,25 +37,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     dlwrap::Builder::new(&include)
         .output_dir(&bindings_dir)
         .symbol_regex(&Regex::new("^sequoia_")?)
-	.license("SPDX-License-Identifier: LGPL-2.0-or-later")
-	.loader_basename("gosequoia")
-	.soname("SEQUOIA_SONAME")
-	.prefix("go_sequoia")
-	.function_prefix("go")
-	.header_guard("GO_SEQUOIA_H_")
-	.include("<sequoia.h>")
+        .license("SPDX-License-Identifier: Apache-2.0")
+        .loader_basename("gosequoia")
+        .soname("SEQUOIA_SONAME")
+        .prefix("go_sequoia")
+        .function_prefix("go")
+        .header_guard("GO_SEQUOIA_H_")
+        .include("<sequoia.h>")
         .generate()?;
 
     let prefix = env::var_os("PREFIX");
-    let prefix: &str = match prefix.as_ref().map(|s| s.to_str()) {
-        Some(Some(s)) => s,
-        Some(None) => Err(anyhow::anyhow!("PREFIX contains invalid UTF-8"))?,
+    let prefix: &str = match prefix.as_ref().and_then(|s| s.to_str()) {
+        Some(s) => s,
         None => "/usr/local",
     };
     let libdir = env::var_os("LIBDIR");
-    let libdir: &str = match libdir.as_ref().map(|s| s.to_str()) {
-        Some(Some(s)) => s,
-        Some(None) => Err(anyhow::anyhow!("LIBDIR contains invalid UTF-8"))?,
+    let libdir: &str = match libdir.as_ref().and_then(|s| s.to_str()) {
+        Some(s) => s,
         None => "${prefix}/lib",
     };
 
@@ -88,7 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let libdir_resolved = libdir.replace("${prefix}", prefix);
 
     let linker_lines = cdylib_link_lines::shared_object_link_args(
-        "podman_sequoia",
+        "image_sequoia",
         &major,
         &minor,
         &patch,
@@ -100,7 +92,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     for line in linker_lines {
-        println!("cargo:rustc-cdylib-link-arg={}", line);
+        println!("cargo:rustc-cdylib-link-arg={line}");
     }
 
     #[cfg(unix)]
@@ -109,10 +101,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut create = true;
 
         let mut link = build_dir.clone();
-        link.push(format!("libpodman_sequoia.so.{}", major));
+        link.push(format!("libimage_sequoia.so.{major}"));
 
         if let Ok(current) = std::fs::read_link(&link) {
-            if current.to_str() == Some("libpodman_openpgp_sequoia.so") {
+            if current.to_str() == Some("libimage_sequoia.so") {
                 // Do nothing.
                 create = false;
             } else {
@@ -122,7 +114,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         if create {
-            std::os::unix::fs::symlink("libpodman_sequoia.so", link)?;
+            std::os::unix::fs::symlink("libimage_sequoia.so", link)?;
         }
     }
     Ok(())

@@ -1,46 +1,34 @@
-# podman-sequoia
+# image-sequoia
 
-podman-sequoia enables to use [sequoia-pgp] as an OpenPGP backend in
-the podman's image signing [mechanism]. It consists of a C shared
-library (in ``) and a Go binding over it (in `go/`).
+This directory contains the source code of a C shared library
+(`libimage_sequoia.so`) that enables to use [sequoia-pgp] as a signing
+backend.
+
+For building, you need rustc (version 1.79 or later), cargo, and
+openssl-devel. For testing, you also need the `sq` command (version
+1.3.0 or later).
 
 ## Building
 
-To build, you need rustc (version 1.63 or later), cargo, and
-openssl-devel.
-
-The following steps should be taken to build the binaries locally.
+To build the shared library and bindings, do:
 
 ```console
-$ PREFIX=/usr LIBDIR="\${prefix}/lib64" \
-  cargo build --release
-```
-
-```console
-$ cd go/sequoia
-$ CGO_CFLAGS=-I$PWD/../../target/release/bindings \
-  CGO_LDFLAGS=-L$PWD/../../target/release \
-  go build
-$ LD_LIBRARY_PATH=$PWD/../../target/release \
-  CGO_CFLAGS=-I$PWD/../../target/release/bindings \
-  CGO_LDFLAGS=-L$PWD/../../target/release \
-  go test
-$ cd -
+$ PREFIX=/usr LIBDIR="\${prefix}/lib64" cargo build --release
 ```
 
 ## Installing
 
-To actually make the Go sequoia module useful, the
-`libpodman_sequoia.so*` shared library needs to be installed on the
-system.
+Just copy the shared library in the library search path:
 
 ```console
-$ sudo cp -a target/release/libpodman_sequoia.so* /usr/lib64
+$ sudo cp -a rust/target/release/libimage_sequoia.so* /usr/lib64
 ```
 
-## License
+## Testing
 
-LGPL-2.0-or-later
-
+To test, in the top-level directory of containers image, do:
+```console
+$ LD_LIBRARY_PATH=$PWD/signature/internal/sequoia/rust/target/release \
+  make BUILDTAGS=containers_image_sequoia
+```
 [sequoia-pgp]: https://sequoia-pgp.org/
-[mechanism]: https://pkg.go.dev/github.com/containers/image/v5@v5.30.0/signature#SigningMechanism
