@@ -93,7 +93,8 @@ impl<'a> SequoiaMechanism<'a> {
             .lookup_by_cert_or_subkey(&primary_key_handle)
             .with_context(|| format!("Failed to load {key_handle} from certificate store"))?
             .into_iter()
-            .filter_map(|cert| match cert.to_cert() { // FIXME: Should this report the error?
+            .filter_map(|cert| match cert.to_cert() {
+                // FIXME: Should this report the error?
                 Ok(cert) => Some(cert.clone()),
                 Err(_) => None,
             })
@@ -205,9 +206,12 @@ impl<'a> VerificationHelper for Helper<'a> {
             }
         }
         let err = match signature_errors.len() {
-        0 => anyhow::anyhow!("No valid signature"),
-        1 => anyhow::anyhow!("{}", &signature_errors[0]),
-        _ => anyhow::anyhow!("Multiple signature errors: [{}]", signature_errors.join(", ")),
+            0 => anyhow::anyhow!("No valid signature"),
+            1 => anyhow::anyhow!("{}", &signature_errors[0]),
+            _ => anyhow::anyhow!(
+                "Multiple signature errors: [{}]",
+                signature_errors.join(", ")
+            ),
         };
         Err(err)
     }
@@ -466,9 +470,7 @@ impl log::Log for SequoiaLogger {
                 return;
             }
         };
-        unsafe {
-            (self.consumer)(level, text.as_ptr())
-        };
+        unsafe { (self.consumer)(level, text.as_ptr()) };
     }
 
     fn flush(&self) {}
@@ -480,14 +482,15 @@ impl log::Log for SequoiaLogger {
 #[no_mangle]
 pub unsafe extern "C" fn sequoia_set_logger_consumer(
     consumer: unsafe extern "C" fn(level: SequoiaLogLevel, message: *const c_char),
-    err_ptr: *mut *mut SequoiaError
+    err_ptr: *mut *mut SequoiaError,
 ) -> c_int {
     let logger = SequoiaLogger { consumer };
-    match log::set_boxed_logger(Box::new(logger)) { // Leaks the logger, but this is explicitly an once-per-process API.
-        Ok(_) => {},
+    match log::set_boxed_logger(Box::new(logger)) {
+        // Leaks the logger, but this is explicitly an once-per-process API.
+        Ok(_) => {}
         Err(e) => {
             set_error_from(err_ptr, e.into());
-            return -1
+            return -1;
         }
     }
 
