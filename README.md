@@ -36,4 +36,11 @@ To test, in the top-level directory of containers image, do:
 $ LD_LIBRARY_PATH=$PWD/signature/internal/sequoia/rust/target/release \
   make BUILDTAGS=containers_image_sequoia
 ```
+
+## License
+
+Apache License 2.0
+
+SPDX-License-Identifier: Apache-2.0
+
 [sequoia-pgp]: https://sequoia-pgp.org/

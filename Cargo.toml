@@ -2,7 +2,8 @@
 name = "podman-sequoia"
 version = "0.1.0"
 edition = "2021"
-license = "LGPL-2.0-or-later"
+license = "Apache-2.0"
+authors = ["Daiki Ueno", "Miloslav Trmač"]
 
 [lib]
 crate-type = ["cdylib"]
