@@ -5,6 +5,10 @@ edition = "2021"
 license = "Apache-2.0"
 authors = ["Daiki Ueno", "Miloslav Trmač"]
 exclude = [".github/workflows/", ".gitleaks.toml", "go/"]
+description = "A polyfill to use Sequoia as a signing backend for containers."
+repository = "https://github.com/ueno/podman-sequoia"
+readme = "README.md"
+keywords = ["cryptography", "openpgp", "pgp", "signing"]
 
 [lib]
 crate-type = ["cdylib"]
