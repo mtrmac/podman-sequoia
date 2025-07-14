@@ -23,5 +23,12 @@ stamp_c_files:
 	cp $(c_files) sequoia && \
 	touch $@
 
+check:: all
+	cd sequoia && \
+	LD_LIBRARY_PATH=$(abspath $(srcdir))/../target/${PROFILE} \
+	CGO_CFLAGS=-I$(abspath $(srcdir))/../target/${PROFILE}/bindings \
+	CGO_LDFLAGS=-L$(abspath $(srcdir))/../target/${PROFILE} \
+	go test -v
+
 maintainer-clean::
 	rm -f $(c_files) stamp_c_files
