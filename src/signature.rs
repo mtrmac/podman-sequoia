@@ -116,7 +116,10 @@ impl<'a> SequoiaMechanism<'a> {
             .with_context(|| format!("Parsing certificate for {key_handle}"))?;
 
         let mut signing_key_handles: Vec<KeyHandle> = vec![];
-        for ka in cert.keys().with_policy(&self.policy, None).for_signing() {
+        let ka = cert
+            .with_policy(&self.policy, None)
+            .with_context(|| format!("No acceptable signing key for {key_handle}"))?;
+        for ka in ka.keys().for_signing() {
             signing_key_handles.push(ka.key().fingerprint().into());
         }
 
