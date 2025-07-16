@@ -90,14 +90,14 @@ impl<'a> SequoiaMechanism<'a> {
         let certs = self
             .certstore
             .lookup_by_cert(&primary_key_handle)
-            .with_context(|| format!("Failed to load {key_handle} from certificate store"))?
+            .with_context(|| format!("Failed to look up {key_handle} in certificate store"))?
             .into_iter()
-            .filter_map(|cert| match cert.to_cert() {
-                // FIXME: Should this report the error?
-                Ok(cert) => Some(cert.clone()),
-                Err(_) => None,
+            .map(|cert| {
+                cert.to_cert()
+                    .with_context(|| format!("Parsing certificate for {key_handle}"))
+                    .cloned()
             })
-            .collect::<Vec<Cert>>();
+            .collect::<Result<Vec<Cert>, _>>()?;
 
         let mut signing_key_handles: Vec<KeyHandle> = vec![];
         for cert in certs {
