@@ -109,15 +109,37 @@ impl<'a> SequoiaMechanism<'a> {
             .with_context(|| format!("Parsing certificate for {key_handle}"))?;
 
         let mut signing_key_handles: Vec<KeyHandle> = vec![];
+        let mut rejected_key_errors: Vec<String> = vec![];
         let ka = cert
             .with_policy(&self.policy, None)
             .with_context(|| format!("No acceptable signing key for {key_handle}"))?;
         for ka in ka.keys().for_signing() {
-            signing_key_handles.push(ka.key().fingerprint().into());
+            if ka.alive().is_err() {
+                rejected_key_errors.push(format!("key {} is expired", ka.key().fingerprint()));
+            } else if matches!(
+                ka.revocation_status(),
+                openpgp::types::RevocationStatus::Revoked(_)
+            ) {
+                rejected_key_errors.push(format!("key {} is revoked", ka.key().fingerprint()));
+            } else if !ka.key().pk_algo().is_supported() {
+                rejected_key_errors
+                    .push(format!("key {} is not supported", ka.key().fingerprint()));
+            } else {
+                signing_key_handles.push(ka.key().key_handle());
+            }
         }
 
         if signing_key_handles.is_empty() {
-            return Err(anyhow::anyhow!("No matching signing key for {key_handle}"));
+            if !rejected_key_errors.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "No acceptable signing key for {key_handle}: {}",
+                    rejected_key_errors.join(", ")
+                ));
+            } else {
+                return Err(anyhow::anyhow!(
+                    "No acceptable signing key for {key_handle}"
+                ));
+            }
         }
 
         let mut keys = self.keystore.find_key(signing_key_handles[0].clone())?;
