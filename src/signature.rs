@@ -90,21 +90,34 @@ impl<'a> SequoiaMechanism<'a> {
         let certs = self
             .certstore
             .lookup_by_cert(&primary_key_handle)
-            .with_context(|| format!("Failed to look up {key_handle} in certificate store"))?
-            .into_iter()
-            .map(|cert| {
-                cert.to_cert()
-                    .with_context(|| format!("Parsing certificate for {key_handle}"))
-                    .cloned()
-            })
-            .collect::<Result<Vec<Cert>, _>>()?;
+            .with_context(|| format!("Failed to look up {key_handle} in certificate store"))?;
+        if certs.len() != 1 {
+            // This should not happen when looking up by fingerprint, lookup_by_cert documentation says
+            // > The caller may assume that looking up a fingerprint returns at
+            // > most one certificate.
+            // and the implementation merges certificates with the same fingerprint.
+            //
+            // This _is_ reachable by using a key ID (not a fingerprint) that matches multiple fingerprints.
+            // In such a situation, we want to fail: We need the user to be precise about which key
+            // we should be signing with.
+            //
+            // The c/image caller documents the parameter as a fingerprint, but does not restrict the format
+            // (it would have to hard-code a copy of Sequoia-PGP’s string format decisions).
+            // Alternatively, we could, above, parse primary_key_handle explicitly as a Fingerprint —
+            // but for user convenience, letting a key ID through is a bit nicer — and we would _still_
+            // want this certs.len() != 1 check, just to be sure.
+            return Err(anyhow::anyhow!(
+                "Ambiguous input, multiple certificates match {key_handle}"
+            ));
+        }
+
+        let cert = certs[0]
+            .to_cert()
+            .with_context(|| format!("Parsing certificate for {key_handle}"))?;
 
         let mut signing_key_handles: Vec<KeyHandle> = vec![];
-        for cert in certs {
-            // FIXME: read from here on
-            for ka in cert.keys().with_policy(&self.policy, None).for_signing() {
-                signing_key_handles.push(ka.key().fingerprint().into());
-            }
+        for ka in cert.keys().with_policy(&self.policy, None).for_signing() {
+            signing_key_handles.push(ka.key().fingerprint().into());
         }
 
         if signing_key_handles.is_empty() {
