@@ -108,7 +108,7 @@ impl<'a> SequoiaMechanism<'a> {
             .to_cert()
             .with_context(|| format!("Parsing certificate for {key_handle}"))?;
 
-        let mut signing_key_handles: Vec<KeyHandle> = vec![];
+        let mut key: Option<sequoia_keystore::Key> = None;
         let mut rejected_key_errors: Vec<String> = vec![];
         let ka = cert
             .with_policy(&self.policy, None)
@@ -125,36 +125,45 @@ impl<'a> SequoiaMechanism<'a> {
                 rejected_key_errors
                     .push(format!("key {} is not supported", ka.key().fingerprint()));
             } else {
-                signing_key_handles.push(ka.key().key_handle());
+                let mut keys = self.keystore.find_key(ka.key().key_handle())?;
+                if keys.is_empty() {
+                    rejected_key_errors.push(format!(
+                        "private key for key {} not found",
+                        ka.key().fingerprint()
+                    ));
+                } else {
+                    // sq might try all elements of keys — but only if the user aborts passphrase prompting.
+                    // We have no way to associate the provided password with a specific subkey, so assume
+                    // it is intended for the first one, to behave predictably.
+                    key = Some(keys.swap_remove(0));
+                    break; // We are done.
+                }
             }
         }
-
-        if signing_key_handles.is_empty() {
-            if !rejected_key_errors.is_empty() {
-                return Err(anyhow::anyhow!(
-                    "No acceptable signing key for {key_handle}: {}",
-                    rejected_key_errors.join(", ")
-                ));
-            } else {
-                return Err(anyhow::anyhow!(
-                    "No acceptable signing key for {key_handle}"
-                ));
+        let mut key = match key {
+            Some(key) => key,
+            None => {
+                if !rejected_key_errors.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "No acceptable signing key for {key_handle}: {}",
+                        rejected_key_errors.join(", ")
+                    ));
+                } else {
+                    // This should not happen? We should always have at least a primary public key,
+                    // and for each public key, we add an entry to rejected_key_errors.
+                    return Err(anyhow::anyhow!("No signing key for {key_handle}"));
+                }
             }
-        }
+        };
 
-        let mut keys = self.keystore.find_key(signing_key_handles[0].clone())?;
-
-        if keys.is_empty() {
-            return Err(anyhow::anyhow!("No matching key in keystore"));
-        }
         if let Some(password) = password {
-            keys[0].unlock(password.into())?;
+            key.unlock(password.into())?;
         }
 
         let mut sink = vec![];
         {
             let message = Message::new(&mut sink);
-            let message = Signer::new(message, &mut keys[0])?.build()?;
+            let message = Signer::new(message, &mut key)?.build()?;
             let mut message = LiteralWriter::new(message).build()?;
             message.write_all(data)?;
             message.finalize()?;
