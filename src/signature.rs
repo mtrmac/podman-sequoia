@@ -116,15 +116,39 @@ impl<'a> SequoiaMechanism<'a> {
             .with_context(|| format!("Parsing certificate for {key_handle}"))?;
 
         let mut signing_key_handles: Vec<KeyHandle> = vec![];
+        let mut rejected_key_errors: Vec<String> = vec![];
         let ka = cert
             .with_policy(&self.policy, None)
             .with_context(|| format!("No acceptable signing key for {key_handle}"))?;
         for ka in ka.keys().for_signing() {
-            signing_key_handles.push(ka.key().fingerprint().into());
+            if ka.alive().is_err() {
+                rejected_key_errors.push(format!("key {} is expired", ka.key().fingerprint()));
+            } else if matches!(
+                ka.revocation_status(),
+                openpgp::types::RevocationStatus::Revoked(_)
+            ) {
+                rejected_key_errors.push(format!("key {} is revoked", ka.key().fingerprint()));
+            } else if !ka.key().pk_algo().is_supported() {
+                rejected_key_errors
+                    .push(format!("key {} is not supported", ka.key().fingerprint()));
+            } else {
+                signing_key_handles.push(ka.key().key_handle());
+            }
         }
 
         if signing_key_handles.is_empty() {
-            return Err(anyhow::anyhow!("No matching signing key for {key_handle}"));
+            if !rejected_key_errors.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "No acceptable signing key for {key_handle}: {}",
+                    rejected_key_errors.join(", ")
+                ));
+            } else {
+                // ka.keys().for_signing() only returns keys with the signing flag,
+                // and we found none. (The OpenPGP RFC seems not to make it mandatory
+                // to include the "key flags" subpacket?! Anyway, this is consistent with
+                // (sq sign).)
+                return Err(anyhow::anyhow!("Key {key_handle} does not support signing"));
+            }
         }
 
         let keystore = self.keystore.as_mut().ok_or_else(|| {
