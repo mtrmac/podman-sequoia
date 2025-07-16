@@ -89,7 +89,7 @@ impl<'a> SequoiaMechanism<'a> {
         let primary_key_handle: KeyHandle = key_handle.parse()?; // FIXME: For gpgme, allow lookup by user ID? grep_userid, or what is the compatible semantics?
         let certs = self
             .certstore
-            .lookup_by_cert_or_subkey(&primary_key_handle)
+            .lookup_by_cert(&primary_key_handle)
             .with_context(|| format!("Failed to load {key_handle} from certificate store"))?
             .into_iter()
             .filter_map(|cert| match cert.to_cert() {
