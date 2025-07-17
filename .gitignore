@@ -1,4 +1,4 @@
 go/stamp_c_files
 go/sequoia/include
 go/sequoia/goopenpgp*.[ch]
-rust/target
+/target
