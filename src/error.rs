@@ -15,10 +15,11 @@ pub enum SequoiaErrorKind {
     IoError,
 }
 
+#[derive(Debug)]
 #[repr(C)]
 pub struct SequoiaError {
-    kind: SequoiaErrorKind,
-    message: *mut c_char,
+    pub kind: SequoiaErrorKind,
+    pub message: *mut c_char,
 }
 
 impl Drop for SequoiaError {
