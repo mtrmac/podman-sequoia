@@ -171,10 +171,22 @@ impl<'a> VerificationHelper for Helper<'a> {
     fn get_certs(&mut self, ids: &[openpgp::KeyHandle]) -> openpgp::Result<Vec<openpgp::Cert>> {
         let mut certs = Vec::new();
         for id in ids {
-            let matches = self.certstore.lookup_by_cert_or_subkey(id);
-            for lc in matches? {
-                certs.push(lc.to_cert()?.clone());
-            }
+            match self.certstore.lookup_by_cert_or_subkey(id) {
+                Ok(matches) => {
+                    for lc in matches {
+                        certs.push(lc.to_cert()?.clone());
+                    }
+                }
+                Err(e) => {
+                    if let Some(sequoia_cert_store::store::StoreError::NotFound(_)) =
+                        e.downcast_ref()
+                    {
+                        // Don’t immediately abort, maybe can verify the signature with some other key.
+                    } else {
+                        return Err(e);
+                    }
+                }
+            };
         }
         Ok(certs)
     }
