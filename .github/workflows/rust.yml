@@ -29,5 +29,7 @@ jobs:
       run: dnf install -y cargo rustfmt clang-devel llvm-devel openssl-devel gcc golang capnproto sqlite-devel
     - name: Build
       run: cargo build --verbose
-    - name: Run tests
+    - name: Run Rust tests
+      run: cargo test --verbose
+    - name: Run Go tests
       run: make -C go check
