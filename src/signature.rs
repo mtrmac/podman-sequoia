@@ -23,7 +23,7 @@ use std::sync::Arc;
 use crate::{set_error_from, SequoiaError};
 
 pub struct SequoiaMechanism<'a> {
-    keystore: sequoia_keystore::Keystore,
+    keystore: Option<sequoia_keystore::Keystore>,
     certstore: Arc<sequoia_cert_store::CertStore<'a>>,
     policy: StandardPolicy<'a>,
 }
@@ -46,18 +46,17 @@ impl<'a> SequoiaMechanism<'a> {
         let policy = crypto_policy()?;
 
         Ok(Self {
-            keystore,
+            keystore: Some(keystore),
             certstore: Arc::new(certstore),
             policy,
         })
     }
 
     fn ephemeral() -> Result<Self, anyhow::Error> {
-        let context = sequoia_keystore::Context::configure().ephemeral().build()?;
         let certstore = Arc::new(sequoia_cert_store::CertStore::empty());
         let policy = crypto_policy()?;
         Ok(Self {
-            keystore: sequoia_keystore::Keystore::connect(&context)?,
+            keystore: None,
             certstore,
             policy,
         })
@@ -112,7 +111,10 @@ impl<'a> SequoiaMechanism<'a> {
             return Err(anyhow::anyhow!("No matching signing key for {key_handle}"));
         }
 
-        let mut keys = self.keystore.find_key(signing_key_handles[0].clone())?;
+        let keystore = self.keystore.as_mut().ok_or_else(|| {
+            anyhow::anyhow!("Caller error: attempting to sign with an ephemeral mechanism")
+        })?;
+        let mut keys = keystore.find_key(signing_key_handles[0].clone())?;
 
         if keys.is_empty() {
             return Err(anyhow::anyhow!("No matching key in keystore"));
