@@ -65,13 +65,11 @@ impl<'a> SequoiaMechanism<'a> {
     fn import_keys(&mut self, blob: &[u8]) -> Result<SequoiaImportResult, anyhow::Error> {
         let mut key_handles = vec![];
         for r in CertParser::from_bytes(blob)? {
-            let cert = match r {
-                Ok(cert) => cert,
-                Err(err) => {
-                    log::info!("Error reading cert: {err}");
-                    continue;
-                }
-            };
+            // NOTE that we might have successfully imported something by now;
+            // in that case we just return an error and don't report what we have imported.
+            // That's fine for containers/image, which creates an one-use ephemeral mechanism
+            // and imports keys into it, i.e. there is no benefit in handling partial success specially.
+            let cert = r.context("Error parsing certificate")?;
 
             key_handles.push(CString::new(cert.fingerprint().to_hex().as_bytes()).unwrap());
             self.certstore
@@ -528,6 +526,7 @@ mod tests {
     use super::*;
 
     const TEST_KEY_FINGERPRINT: &str = "50DDE898DF4E48755C8C2B7AF6F908B6FA48A229";
+    const TEST_KEY_FINGERPRINT_WITH_PASSPHRASE: &str = "1F5825285B785E1DB13BF36D2D11A19ABA41C6AE";
 
     #[test]
     fn primary_workflow() {
@@ -625,5 +624,53 @@ mod tests {
 
             unsafe { sequoia_mechanism_free(m2) };
         }
+    }
+
+    #[test]
+    fn import_keys() {
+        // The basic case of import of a single key is tested in primary_workflow().
+
+        // A valid import of multiple keys.
+        let pk1 = include_bytes!("./data/no-passphrase.pub");
+        let pk2 = include_bytes!("./data/with-passphrase.pub");
+        let mut mech = SequoiaMechanism::ephemeral().unwrap();
+        let res = mech.import_keys(&[pk1.as_slice(), pk2.as_slice()].concat());
+        assert!(res.is_ok());
+        assert_eq!(
+            res.unwrap().key_handles,
+            [
+                CString::new(TEST_KEY_FINGERPRINT).unwrap(),
+                CString::new(TEST_KEY_FINGERPRINT_WITH_PASSPHRASE).unwrap(),
+            ],
+        );
+
+        let mut mech = SequoiaMechanism::ephemeral().unwrap();
+        let res = mech.import_keys(b"this is not a valid public key");
+        // "unexpected EOF": When the input does not look like binary OpenPGP, the code tries to parse it as ASCII-armored,
+        // and looks for a BEGIN… header.
+        assert!(res.is_err());
+
+        let mut mech = SequoiaMechanism::ephemeral().unwrap();
+        let res = mech.import_keys(b"\xC6\x09this is not a valid public key");
+        // "Error parsing certificate" Malformed packet: Truncated packet": The input starts with a valid enough OpenPGP packet header.
+        assert!(res.is_err());
+
+        // Generally, the certstore.update call should never fail for ephemeral mechanisms; it might fail
+        // - if the provided LazyCert can’t be parsed, but we already have a parsed form
+        // - on an internal inconsistency of CertStore, if it tries to merge two certificates with different fingerprints
+        // but, purely for test purposes, we can trigger an I/O write error by using a non-ephemeral mechanism
+        // (which is not expected to happen in practice).
+        let sequoia_home = tempfile::tempdir().unwrap();
+        let certstore_dir = sequoia_directories::Home::new(sequoia_home.path().to_path_buf())
+            .unwrap()
+            .data_dir(sequoia_directories::Component::CertD);
+        let mut mech = SequoiaMechanism::from_directory(Some(sequoia_home.path())).unwrap();
+        let original_perms = fs::metadata(&certstore_dir).unwrap().permissions();
+        let mut ro_perms = original_perms.clone();
+        ro_perms.set_readonly(true);
+        fs::set_permissions(&certstore_dir, ro_perms).unwrap();
+        let res = mech.import_keys(pk1);
+        assert!(res.is_err());
+        fs::set_permissions(&certstore_dir, original_perms).unwrap();
     }
 }
