@@ -419,13 +419,6 @@ pub unsafe extern "C" fn sequoia_import_keys(
     assert!(!mechanism_ptr.is_null());
 
     let blob = slice::from_raw_parts(blob_ptr, blob_len);
-    if blob.is_empty() {
-        let result = SequoiaImportResult {
-            ..Default::default()
-        };
-        return Box::into_raw(Box::new(result));
-    }
-
     match (*mechanism_ptr).import_keys(blob) {
         Ok(result) => Box::into_raw(Box::new(result)),
         Err(e) => {
@@ -610,6 +603,12 @@ mod tests {
     #[test]
     fn import_keys() {
         // The basic case of import of a single key is tested in primary_workflow().
+
+        // Empty input.
+        let mut mech = SequoiaMechanism::ephemeral().unwrap();
+        let res = mech.import_keys(&[]);
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap().key_handles, []);
 
         // A valid import of multiple keys.
         let pk1 = include_bytes!("./data/no-passphrase.pub");
