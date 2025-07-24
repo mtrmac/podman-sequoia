@@ -137,10 +137,6 @@ impl<'a> SequoiaMechanism<'a> {
     ///
     /// Note that this does not implement the web of trust, or any other policy.
     fn verify(&mut self, signature: &[u8]) -> Result<SequoiaVerificationResult, anyhow::Error> {
-        if signature.is_empty() {
-            return Err(anyhow::anyhow!("empty signature"));
-        }
-
         let h = Helper {
             certstore: self.certstore.clone(),
             signer: Default::default(),
@@ -518,6 +514,7 @@ pub unsafe extern "C" fn sequoia_set_logger_consumer(
 mod tests {
     use super::*;
 
+    const TEST_KEY: &[u8] = include_bytes!("./data/no-passphrase.pub");
     const TEST_KEY_FINGERPRINT: &str = "50DDE898DF4E48755C8C2B7AF6F908B6FA48A229";
     const TEST_KEY_FINGERPRINT_WITH_PASSPHRASE: &str = "1F5825285B785E1DB13BF36D2D11A19ABA41C6AE";
     const INVALID_PUBLIC_KEY_BLOB: &[u8] = b"\xC6\x09this is not a valid public key";
@@ -573,16 +570,10 @@ mod tests {
             unsafe { crate::sequoia_error_free(err_ptr) };
             err_ptr = ptr::null_mut();
 
-            let public_key = include_bytes!("./data/no-passphrase.pub");
             let mut fingerprints: Vec<String> = Vec::new();
             {
                 let import_result = unsafe {
-                    super::sequoia_import_keys(
-                        m2,
-                        public_key.as_ptr(),
-                        public_key.len(),
-                        &mut err_ptr,
-                    )
+                    super::sequoia_import_keys(m2, TEST_KEY.as_ptr(), TEST_KEY.len(), &mut err_ptr)
                 };
                 assert!(!import_result.is_null());
                 assert!(err_ptr.is_null());
@@ -632,10 +623,10 @@ mod tests {
         assert_eq!(res.unwrap().key_handles, []);
 
         // A valid import of multiple keys.
-        let pk1 = include_bytes!("./data/no-passphrase.pub");
-        let pk2 = include_bytes!("./data/with-passphrase.pub");
+        let pk1 = &TEST_KEY[..];
+        let pk2 = &include_bytes!("./data/with-passphrase.pub")[..];
         let mut mech = SequoiaMechanism::ephemeral().unwrap();
-        let res = mech.import_keys(&[pk1.as_slice(), pk2.as_slice()].concat());
+        let res = mech.import_keys(&[pk1, pk2].concat());
         assert!(res.is_ok());
         assert_eq!(
             res.unwrap().key_handles,
@@ -729,6 +720,15 @@ mod tests {
             assert!(!err_ptr.is_null());
             unsafe { crate::sequoia_error_free(err_ptr) };
         });
+    }
+
+    #[test]
+    fn verify() {
+        // Empty signature
+        let mut m = SequoiaMechanism::ephemeral().unwrap();
+        m.import_keys(TEST_KEY).unwrap();
+        let res = m.verify(b"");
+        assert!(res.is_err());
     }
 
     // with_c_ephemeral_mechanism runs the provided function with a C-interface ephemeral mechanism,
