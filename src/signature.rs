@@ -171,6 +171,9 @@ impl<'a> VerificationHelper for Helper<'a> {
             match self.certstore.lookup_by_cert_or_subkey(id) {
                 Ok(matches) => {
                     for lc in matches {
+                        // lc.to_cert() should never fail for ephemeral SequoiaMechanism, where the in-memory cert store always creates
+                        // a LazyCert from a parsed Cert. It could fail for non-ephemeral contexts, where the LazyCert typically originates
+                        // as RawCert and the parsed Cert would be created here.
                         certs.push(lc.to_cert()?.clone());
                     }
                 }
@@ -516,6 +519,7 @@ mod tests {
     use super::*;
 
     const TEST_KEY: &[u8] = include_bytes!("./data/no-passphrase.pub");
+    const TEST_KEY_WITH_PASSPHRASE: &[u8] = include_bytes!("./data/with-passphrase.pub");
     const TEST_KEY_FINGERPRINT: &str = "50DDE898DF4E48755C8C2B7AF6F908B6FA48A229";
     const TEST_KEY_FINGERPRINT_WITH_PASSPHRASE: &str = "1F5825285B785E1DB13BF36D2D11A19ABA41C6AE";
     const INVALID_PUBLIC_KEY_BLOB: &[u8] = b"\xC6\x09this is not a valid public key";
@@ -625,7 +629,7 @@ mod tests {
 
         // A valid import of multiple keys.
         let pk1 = &TEST_KEY[..];
-        let pk2 = &include_bytes!("./data/with-passphrase.pub")[..];
+        let pk2 = &TEST_KEY_WITH_PASSPHRASE[..];
         let mut mech = SequoiaMechanism::ephemeral().unwrap();
         let res = mech.import_keys(&[pk1, pk2].concat());
         assert!(res.is_ok());
@@ -744,6 +748,114 @@ mod tests {
         let mut m = SequoiaMechanism::ephemeral().unwrap();
         let res = m.verify(&large_signature);
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn verification_helper_get_certs() {
+        // Success is tested in primary_workflow().
+
+        // We don’t test the code path where a LazyCert.to_cert() fails; we’d probably have to use SequoiaMechanism::from_directory
+        // against a fixture with invalid certificates, and it’s irrelevant to verification in an ephemeral mechanism.
+
+        let valid_signature = include_bytes!("./data/sequoia.signature");
+
+        // Certificate not found
+        let mut m = SequoiaMechanism::ephemeral().unwrap(); // No public keys
+        let res = m.verify(valid_signature);
+        assert!(res.is_err());
+
+        // Other error:
+        // Generally, the certstore.lookup_by_cert_or_subkey call should only fail by reporting that
+        // nothing was found.
+        // We also can’t very easily trigger a read I/O error, because sequoia-cert-store::store::certd::CertD
+        // reads all files on creation already.
+        // So, *sigh*, mock a failing cert store.
+        let mut store = sequoia_cert_store::CertStore::empty();
+        store.add_backend(
+            Box::new(FailingCertStore {}),
+            sequoia_cert_store::AccessMode::Always,
+        );
+        let mut m = SequoiaMechanism {
+            keystore: None,
+            certstore: Arc::new(store),
+            policy: crypto_policy().unwrap(),
+        };
+        let res = m.verify(valid_signature);
+        assert!(res.is_err());
+    }
+
+    // FailingCertStore exists for the verification_helper_get_certs test.
+    struct FailingCertStore {}
+    impl<'a> sequoia_cert_store::Store<'a> for FailingCertStore {
+        fn lookup_by_cert(
+            &self,
+            _: &KeyHandle,
+        ) -> openpgp::Result<Vec<Arc<sequoia_cert_store::LazyCert<'a>>>> {
+            Err(anyhow::anyhow!("test error"))
+        }
+        fn lookup_by_cert_or_subkey(
+            &self,
+            _: &KeyHandle,
+        ) -> openpgp::Result<Vec<Arc<sequoia_cert_store::LazyCert<'a>>>> {
+            Err(anyhow::anyhow!("test error"))
+        }
+        fn select_userid(
+            &self,
+            _: &sequoia_cert_store::store::UserIDQueryParams,
+            _: &str,
+        ) -> openpgp::Result<Vec<Arc<sequoia_cert_store::LazyCert<'a>>>> {
+            Err(anyhow::anyhow!("test error"))
+        }
+        fn fingerprints<'b>(&'b self) -> Box<dyn Iterator<Item = openpgp::Fingerprint> + 'b> {
+            Box::new(std::iter::empty())
+        }
+    }
+
+    #[test]
+    fn verification_helper_check() {
+        // Basic success is tested in primary_workflow().
+
+        // Signature uses a compressed data packet (as GnuPG does), and it is valid:
+        let mut m = SequoiaMechanism::ephemeral().unwrap();
+        m.import_keys(include_bytes!("./data/public-key.gpg"))
+            .unwrap();
+        let res = m.verify(include_bytes!("./data/invalid-blob.signature"));
+        assert!(res.is_ok());
+        assert_eq!(res.as_ref().unwrap().content, b"This is not JSON\n");
+        assert_eq!(
+            res.as_ref().unwrap().signer,
+            CString::new("08CD26E446E2E95249B7A405E932F44B23E8DD43").unwrap()
+        );
+
+        // Encrypted, but unsigned, data:
+        // This does not create MessageLayer::Encryption, the code never creates that when verifying
+        // (we’d have to explicitly be decrypting, not verifying).
+        let mut m = SequoiaMechanism::ephemeral().unwrap();
+        let res = m.verify(include_bytes!("./data/unsigned-encrypted.signature"));
+        // "Malformed Message: Malformed OpenPGP message" because encrypted data is only processed when decrypting, and ignored by Verifier.
+        assert!(res.is_err());
+
+        // Literal data with no signature:
+        let mut m = SequoiaMechanism::ephemeral().unwrap();
+        let res = m.verify(include_bytes!("./data/unsigned-literal.signature"));
+        assert!(res.is_err()); // "No valid signature" by our Helper
+
+        // Double-signed signature:
+        // Created using
+        //  let message = Message::new(&mut sink);
+        //  let message = Signer::new(message, &mut key1).unwrap().build().unwrap();
+        //  let message = Signer::new(message, &mut key2).unwrap().build().unwrap();
+        //  let mut message = LiteralWriter::new(message).build().unwrap();
+        //  message.write_all(b"double-signed").unwrap();
+        //  message.finalize().unwrap();
+        // with key1 and key2 being TEST_KEY_FINGERPRINT_WITH_PASSPHRASE.
+        let double_signed_signature = include_bytes!("./data/double-signed.signature");
+        let mut m = SequoiaMechanism::ephemeral().unwrap();
+        let res = m.verify(double_signed_signature);
+        assert!(res.is_err()); // "Multiple signature errors: [Missing key …, Missing key …]" by our Helper
+        m.import_keys(TEST_KEY_WITH_PASSPHRASE).unwrap();
+        let res = m.verify(double_signed_signature);
+        assert!(res.is_ok());
     }
 
     // fixture_path_buf returns this crates’ fixture directory, as an owned PathBuf.
