@@ -499,3 +499,123 @@ pub unsafe extern "C" fn sequoia_set_logger_consumer(
     log::set_max_level(log::LevelFilter::Trace); // We’ll let the consumer do the filtering, if any.
     0
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_KEY_FINGERPRINT: &str = "50DDE898DF4E48755C8C2B7AF6F908B6FA48A229";
+
+    #[test]
+    fn primary_workflow() {
+        // The typical successful usage of this library.
+        let input = b"Hello, world!";
+
+        let mut err_ptr: *mut SequoiaError = ptr::null_mut();
+
+        let fixture_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("./src/data");
+        let signed: Vec<u8>;
+        {
+            let c_sequoia_home = CString::new(fixture_dir.as_os_str().as_bytes()).unwrap();
+            let m1 = unsafe {
+                sequoia_mechanism_new_from_directory(c_sequoia_home.as_ptr(), &mut err_ptr)
+            };
+            assert!(!m1.is_null());
+            assert!(err_ptr.is_null());
+
+            {
+                let c_fingerprint = CString::new(TEST_KEY_FINGERPRINT).unwrap();
+                let sig = unsafe {
+                    sequoia_sign(
+                        m1,
+                        c_fingerprint.as_ptr(),
+                        std::ptr::null(),
+                        input.as_ptr(),
+                        input.len(),
+                        &mut err_ptr,
+                    )
+                };
+                assert!(!sig.is_null());
+                assert!(err_ptr.is_null());
+                let mut sig_size: size_t = 0;
+                let c_sig_data = unsafe { sequoia_signature_get_data(sig, &mut sig_size) };
+                let sig_slice = unsafe { std::slice::from_raw_parts(c_sig_data, sig_size) };
+                signed = sig_slice.to_vec();
+                unsafe { sequoia_signature_free(sig) };
+            }
+
+            unsafe { sequoia_mechanism_free(m1) }
+        }
+
+        with_c_ephemeral_mechanism(|m2| {
+            let mut err_ptr: *mut SequoiaError = ptr::null_mut();
+
+            // With no public key, verification should fail
+            let res = unsafe { sequoia_verify(m2, signed.as_ptr(), signed.len(), &mut err_ptr) };
+            assert!(res.is_null());
+            assert!(!err_ptr.is_null());
+            unsafe { crate::sequoia_error_free(err_ptr) };
+            err_ptr = ptr::null_mut();
+
+            let public_key = include_bytes!("./data/no-passphrase.pub");
+            let mut fingerprints: Vec<String> = Vec::new();
+            {
+                let import_result = unsafe {
+                    super::sequoia_import_keys(
+                        m2,
+                        public_key.as_ptr(),
+                        public_key.len(),
+                        &mut err_ptr,
+                    )
+                };
+                assert!(!import_result.is_null());
+                assert!(err_ptr.is_null());
+                let count = unsafe { sequoia_import_result_get_count(import_result) };
+                for i in 0..count {
+                    let c_fingerprint = unsafe {
+                        super::sequoia_import_result_get_content(import_result, i, &mut err_ptr)
+                    };
+                    let fingerprint = unsafe { CStr::from_ptr(c_fingerprint) };
+                    fingerprints.push(fingerprint.to_str().unwrap().to_owned());
+                }
+                unsafe { sequoia_import_result_free(import_result) };
+            }
+            assert_eq!(fingerprints.len(), 1);
+            assert_eq!(fingerprints[0], TEST_KEY_FINGERPRINT);
+
+            {
+                let res =
+                    unsafe { sequoia_verify(m2, signed.as_ptr(), signed.len(), &mut err_ptr) };
+                assert!(!res.is_null());
+                assert!(err_ptr.is_null());
+
+                let mut contents_size: size_t = 0;
+                let c_contents =
+                    unsafe { sequoia_verification_result_get_content(res, &mut contents_size) };
+                let contents_slice =
+                    unsafe { std::slice::from_raw_parts(c_contents, contents_size) };
+                assert_eq!(contents_slice, input);
+
+                let c_signer = unsafe { sequoia_verification_result_get_signer(res) };
+                let signer = unsafe { CStr::from_ptr(c_signer) };
+                assert_eq!(signer.to_str().unwrap(), TEST_KEY_FINGERPRINT);
+
+                unsafe { sequoia_verification_result_free(res) };
+            }
+        });
+    }
+
+    // with_c_ephemeral_mechanism runs the provided function with a C-interface ephemeral mechanism,
+    // as a convenience for tests of other aspects of the C bindings.
+    fn with_c_ephemeral_mechanism(f: impl FnOnce(*mut SequoiaMechanism)) {
+        let mut err_ptr: *mut SequoiaError = ptr::null_mut();
+
+        let m = unsafe { sequoia_mechanism_new_ephemeral(&mut err_ptr) };
+        assert!(!m.is_null());
+        assert!(err_ptr.is_null());
+
+        f(m);
+
+        unsafe { sequoia_mechanism_free(m) };
+    }
+}
