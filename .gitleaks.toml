@@ -7,4 +7,6 @@
 [allowlist]
   paths = [
     '''go/sequoia/fixtures/.*\.(?:pgp|key|cert)$''',
+    '''/src/data/data/[^/]*\.pub''', # src/data contains test fixtures.
+    '''/src/data/data/.*''', # src/data contains test fixtures, all of src/data/data is a Sequoia-PGP home directory with fixture public and secret keys.
   ]
