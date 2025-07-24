@@ -520,6 +520,7 @@ mod tests {
 
     const TEST_KEY_FINGERPRINT: &str = "50DDE898DF4E48755C8C2B7AF6F908B6FA48A229";
     const TEST_KEY_FINGERPRINT_WITH_PASSPHRASE: &str = "1F5825285B785E1DB13BF36D2D11A19ABA41C6AE";
+    const INVALID_PUBLIC_KEY_BLOB: &[u8] = b"\xC6\x09this is not a valid public key";
 
     #[test]
     fn primary_workflow() {
@@ -562,10 +563,8 @@ mod tests {
             unsafe { sequoia_mechanism_free(m1) }
         }
 
-        {
-            let m2 = unsafe { sequoia_mechanism_new_ephemeral(&mut err_ptr) };
-            assert!(!m2.is_null());
-            assert!(err_ptr.is_null());
+        with_c_ephemeral_mechanism(|m2| {
+            let mut err_ptr: *mut SequoiaError = ptr::null_mut();
 
             // With no public key, verification should fail
             let res = unsafe { sequoia_verify(m2, signed.as_ptr(), signed.len(), &mut err_ptr) };
@@ -578,14 +577,19 @@ mod tests {
             let mut fingerprints: Vec<String> = Vec::new();
             {
                 let import_result = unsafe {
-                    sequoia_import_keys(m2, public_key.as_ptr(), public_key.len(), &mut err_ptr)
+                    super::sequoia_import_keys(
+                        m2,
+                        public_key.as_ptr(),
+                        public_key.len(),
+                        &mut err_ptr,
+                    )
                 };
                 assert!(!import_result.is_null());
                 assert!(err_ptr.is_null());
                 let count = unsafe { sequoia_import_result_get_count(import_result) };
                 for i in 0..count {
                     let c_fingerprint = unsafe {
-                        sequoia_import_result_get_content(import_result, i, &mut err_ptr)
+                        super::sequoia_import_result_get_content(import_result, i, &mut err_ptr)
                     };
                     let fingerprint = unsafe { CStr::from_ptr(c_fingerprint) };
                     fingerprints.push(fingerprint.to_str().unwrap().to_owned());
@@ -614,9 +618,7 @@ mod tests {
 
                 unsafe { sequoia_verification_result_free(res) };
             }
-
-            unsafe { sequoia_mechanism_free(m2) };
-        }
+        });
     }
 
     #[test]
@@ -650,7 +652,7 @@ mod tests {
         assert!(res.is_err());
 
         let mut mech = SequoiaMechanism::ephemeral().unwrap();
-        let res = mech.import_keys(b"\xC6\x09this is not a valid public key");
+        let res = mech.import_keys(INVALID_PUBLIC_KEY_BLOB);
         // "Error parsing certificate" Malformed packet: Truncated packet": The input starts with a valid enough OpenPGP packet header.
         assert!(res.is_err());
 
@@ -671,5 +673,19 @@ mod tests {
         let res = mech.import_keys(pk1);
         assert!(res.is_err());
         fs::set_permissions(&certstore_dir, original_perms).unwrap();
+    }
+
+    // with_c_ephemeral_mechanism runs the provided function with a C-interface ephemeral mechanism,
+    // as a convenience for tests of other aspects of the C bindings.
+    fn with_c_ephemeral_mechanism(f: impl FnOnce(*mut SequoiaMechanism)) {
+        let mut err_ptr: *mut SequoiaError = ptr::null_mut();
+
+        let m = unsafe { sequoia_mechanism_new_ephemeral(&mut err_ptr) };
+        assert!(!m.is_null());
+        assert!(err_ptr.is_null());
+
+        f(m);
+
+        unsafe { sequoia_mechanism_free(m) };
     }
 }
