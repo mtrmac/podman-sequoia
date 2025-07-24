@@ -654,6 +654,62 @@ mod tests {
         }
     }
 
+    #[test]
+    fn sequoia_import_result_get_content() {
+        // Success is tested in primary_workflow().
+
+        // Index out of range
+        with_c_ephemeral_mechanism(|m| {
+            let mut err_ptr: *mut SequoiaError = ptr::null_mut();
+
+            let no_public_key = b"";
+            let import_result = unsafe {
+                super::sequoia_import_keys(
+                    m,
+                    no_public_key.as_ptr(),
+                    no_public_key.len(),
+                    &mut err_ptr,
+                )
+            };
+            assert!(!import_result.is_null());
+            assert!(err_ptr.is_null());
+            let count = unsafe { sequoia_import_result_get_count(import_result) };
+            assert_eq!(count, 0);
+
+            let c_fingerprint = unsafe {
+                super::sequoia_import_result_get_content(import_result, 9999, &mut err_ptr)
+            };
+            assert!(c_fingerprint.is_null());
+            assert!(!err_ptr.is_null());
+            unsafe { crate::sequoia_error_free(err_ptr) };
+            // err_ptr = ptr::null_mut();
+
+            unsafe { sequoia_import_result_free(import_result) };
+        });
+    }
+
+    #[test]
+    fn sequoia_import_keys_invalid_public_key() {
+        // Success is tested in primary_workflow().
+
+        // Import failed.
+        with_c_ephemeral_mechanism(|m| {
+            let mut err_ptr: *mut SequoiaError = ptr::null_mut();
+
+            let import_result = unsafe {
+                super::sequoia_import_keys(
+                    m,
+                    INVALID_PUBLIC_KEY_BLOB.as_ptr(),
+                    INVALID_PUBLIC_KEY_BLOB.len(),
+                    &mut err_ptr,
+                )
+            };
+            assert!(import_result.is_null());
+            assert!(!err_ptr.is_null());
+            unsafe { crate::sequoia_error_free(err_ptr) };
+        });
+    }
+
     // with_c_ephemeral_mechanism runs the provided function with a C-interface ephemeral mechanism,
     // as a convenience for tests of other aspects of the C bindings.
     fn with_c_ephemeral_mechanism(f: impl FnOnce(*mut SequoiaMechanism)) {
