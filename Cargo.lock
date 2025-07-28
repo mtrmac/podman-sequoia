@@ -2233,6 +2233,7 @@ dependencies = [
  "sequoia-keystore",
  "sequoia-openpgp",
  "sequoia-policy-config",
+ "tempfile",
 ]
 
 [[package]]
