@@ -860,6 +860,88 @@ mod tests {
         assert!(res.is_ok(), "{}", unsafe { res.unwrap_err_unchecked() });
     }
 
+    #[test]
+    fn repeated_keystore() {
+        let keystore_dir = tempfile::tempdir().unwrap();
+        let context = sequoia_keystore::Context::configure()
+            .home(&keystore_dir.path())
+            // .ipc_policy(sequoia_ipc::IPCPolicy::External) // This fails because I don’t have the sequoia-keystore server binary
+            .build()
+            .unwrap();
+        for _ in 0..1000 {
+            let keystore = match sequoia_keystore::Keystore::connect(&context) {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("FAILED: PID {}: {}", std::process::id(), e);
+                    // sleep 1000 seconds
+                    std::thread::sleep(std::time::Duration::from_secs(1000));
+                    unreachable!()
+                }
+            };
+            drop(keystore);
+        }
+    }
+
+    #[test]
+    fn verification_parallelism() {
+        let sequoia_home = tempfile::tempdir().unwrap();
+        // Pre-create home
+        let m = SequoiaMechanism::from_directory(Some(&sequoia_home.path())).unwrap();
+        drop(m);
+
+        if true {
+            let sequoia_home =
+                sequoia_directories::Home::new(sequoia_home.path().to_path_buf()).unwrap();
+            let keystore_dir = sequoia_home.data_dir(sequoia_directories::Component::Keystore);
+            let context = sequoia_keystore::Context::configure()
+                .home(&keystore_dir)
+                .build()
+                .unwrap();
+            for _ in 0..1000 {
+                let keystore = match sequoia_keystore::Keystore::connect(&context) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        eprintln!("FAILED: PID {}: {}", std::process::id(), e);
+                        // sleep 1000 seconds
+                        std::thread::sleep(std::time::Duration::from_secs(1000));
+                        unreachable!()
+                    }
+                };
+                drop(keystore);
+            }
+        } else if true {
+            for _ in 0..1000 {
+                let m = match SequoiaMechanism::from_directory(Some(sequoia_home.path())) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        eprintln!("FAILED: PID {}: {}", std::process::id(), e);
+                        // sleep 1000 seconds
+                        std::thread::sleep(std::time::Duration::from_secs(1000));
+                        unreachable!()
+                    }
+                };
+                drop(m);
+            }
+        } else {
+            // create 100 threads
+            let threads = (0..1)
+                .map(|_| {
+                    let sequoia_home = sequoia_home.path().to_path_buf();
+                    std::thread::spawn(move || {
+                        for _ in 0..1000 {
+                            let m = SequoiaMechanism::from_directory(Some(sequoia_home.as_path()))
+                                .unwrap();
+                            drop(m);
+                        }
+                    })
+                })
+                .collect::<Vec<_>>();
+            // wait for all threads to finish
+            for thread in threads {
+                thread.join().unwrap();
+            }
+        }
+    }
     // fixture_path_buf returns this crates’ fixture directory, as an owned PathBuf.
     fn fixture_path_buf() -> std::path::PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("./src/data")
