@@ -197,14 +197,14 @@ impl<'a> VerificationHelper for Helper<'a> {
             match layer {
                 MessageLayer::Compression { algo: _ } => (),
                 MessageLayer::Encryption {
-                    sym_algo,
-                    aead_algo,
+                    sym_algo: _,
+                    aead_algo: _,
                 } => {
-                    if let Some(aead_algo) = aead_algo {
-                        log::info!("Encrypted and protected using {sym_algo}/{aead_algo}");
-                    } else {
-                        log::info!("Encrypted using {sym_algo}");
-                    }
+                    // Coverage: MessageLayer::Encryption is only created when the message parser is invoked using a DecryptorBuilder,
+                    // not using a VerifierBuilder like we do.
+                    return Err(anyhow::anyhow!(
+                        "internal error: MessageLayer::Encryption should never have happened"
+                    ));
                 }
                 MessageLayer::SignatureGroup { ref results } => {
                     for result in results {
