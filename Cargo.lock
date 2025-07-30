@@ -2230,6 +2230,7 @@ dependencies = [
  "regex",
  "sequoia-cert-store",
  "sequoia-directories",
+ "sequoia-ipc",
  "sequoia-keystore",
  "sequoia-openpgp",
  "sequoia-policy-config",
