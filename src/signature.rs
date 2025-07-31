@@ -132,6 +132,10 @@ impl<'a> SequoiaMechanism<'a> {
         Ok(sink)
     }
 
+    /// Verifies a signature against _any_ public key known to the mechanism,
+    /// and returns the signed contents, along with the signing key’s (primary) fingerprint, on success.
+    ///
+    /// Note that this does not implement the web of trust, or any other policy.
     fn verify(&mut self, signature: &[u8]) -> Result<SequoiaVerificationResult, anyhow::Error> {
         if signature.is_empty() {
             return Err(anyhow::anyhow!("empty signature"));
@@ -194,6 +198,11 @@ impl<'a> VerificationHelper for Helper<'a> {
                     for result in results {
                         match result {
                             Ok(good_checksum) => {
+                                // NOTE: We are not imposing any trust policy - as long as a public key is found,
+                                // this succeeds and the key’s fingerprint is returned to the caller.
+                                // This is fine for the expected user, which constructs an ephemeral mechanism
+                                // and imports only the keys trusted in that situation — but it might not be suitable
+                                // for more general use cases.
                                 self.signer = Some(good_checksum.ka.cert().to_owned());
                                 return Ok(());
                             }
