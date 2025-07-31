@@ -142,6 +142,7 @@ impl<'a> SequoiaMechanism<'a> {
             signer: Default::default(),
         };
 
+        // Coverage: VerifierBuilder::from_bytes (via VerifierBuilder::new) never fails.
         let mut v = VerifierBuilder::from_bytes(signature)?.with_policy(&self.policy, None, h)?;
         let mut content = Vec::new();
         v.read_to_end(&mut content)?;
@@ -153,7 +154,7 @@ impl<'a> SequoiaMechanism<'a> {
                 content,
                 signer: CString::new(signer.fingerprint().to_hex().as_bytes()).unwrap(),
             }),
-            None => Err(anyhow::anyhow!("No valid signer")),
+            None => Err(anyhow::anyhow!("No valid signer")), // Coverage: Should not happen, Helper should have rejected this.
         }
     }
 }
@@ -526,7 +527,7 @@ mod tests {
 
         let mut err_ptr: *mut SequoiaError = ptr::null_mut();
 
-        let fixture_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("./src/data");
+        let fixture_dir = fixture_path_buf();
         let signed: Vec<u8>;
         {
             let c_sequoia_home = CString::new(fixture_dir.as_os_str().as_bytes()).unwrap();
@@ -724,11 +725,30 @@ mod tests {
 
     #[test]
     fn verify() {
+        // Basic success is tested in primary_workflow().
+
         // Empty signature
         let mut m = SequoiaMechanism::ephemeral().unwrap();
         m.import_keys(TEST_KEY).unwrap();
         let res = m.verify(b"");
         assert!(res.is_err());
+
+        // A very large signature, where verification happens in read_to_end, not already in VerifierBuilder::with_policy.
+        // Success:
+        let mut m = SequoiaMechanism::from_directory(Some(fixture_path_buf().as_path())).unwrap();
+        let large_contents: Vec<u8> = vec![0; 2 * openpgp::parse::stream::DEFAULT_BUFFER_SIZE];
+        let large_signature = m.sign(TEST_KEY_FINGERPRINT, None, &large_contents).unwrap();
+        let res = m.verify(&large_signature);
+        assert_eq!(res.expect("verify should succeed").content, large_contents);
+        // Failure: (using a mechanism which doesn’t trust the key)
+        let mut m = SequoiaMechanism::ephemeral().unwrap();
+        let res = m.verify(&large_signature);
+        assert!(res.is_err());
+    }
+
+    // fixture_path_buf returns this crates’ fixture directory, as an owned PathBuf.
+    fn fixture_path_buf() -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("./src/data")
     }
 
     // with_c_ephemeral_mechanism runs the provided function with a C-interface ephemeral mechanism,
