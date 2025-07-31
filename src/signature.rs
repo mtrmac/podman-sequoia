@@ -195,7 +195,7 @@ impl<'a> VerificationHelper for Helper<'a> {
         let mut signature_errors: Vec<String> = Vec::new();
         for layer in structure {
             match layer {
-                MessageLayer::Compression { algo } => log::info!("Compressed using {algo}"),
+                MessageLayer::Compression { algo: _ } => (),
                 MessageLayer::Encryption {
                     sym_algo,
                     aead_algo,
