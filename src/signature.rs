@@ -517,6 +517,8 @@ pub unsafe extern "C" fn sequoia_set_logger_consumer(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use super::*;
 
     const TEST_KEY: &[u8] = include_bytes!("./data/no-passphrase.pub");
@@ -535,6 +537,7 @@ mod tests {
         let fixture_dir = fixture_path_buf();
         let signed: Vec<u8>;
         {
+            let fixture_home_locked = FIXTURE_SEQUOIA_HOME_LOCK.lock().unwrap();
             let c_sequoia_home = CString::new(fixture_dir.as_os_str().as_bytes()).unwrap();
             let m1 = unsafe {
                 sequoia_mechanism_new_from_directory(c_sequoia_home.as_ptr(), &mut err_ptr)
@@ -564,6 +567,7 @@ mod tests {
             }
 
             unsafe { sequoia_mechanism_free(m1) }
+            drop(fixture_home_locked);
         }
 
         with_c_ephemeral_mechanism(|m2| {
@@ -740,12 +744,19 @@ mod tests {
 
         // A very large signature, where verification happens in read_to_end, not already in VerifierBuilder::with_policy.
         // Success:
-        let mut m = SequoiaMechanism::from_directory(Some(fixture_path_buf().as_path())).unwrap();
-        let large_contents: Vec<u8> = vec![0; 2 * openpgp::parse::stream::DEFAULT_BUFFER_SIZE];
-        let large_signature = m.sign(TEST_KEY_FINGERPRINT, None, &large_contents).unwrap();
-        let res = m.verify(&large_signature);
-        assert!(res.is_ok());
-        assert_eq!(res.unwrap().content, large_contents);
+        let large_signature: Vec<u8>;
+        {
+            let fixture_home_locked = FIXTURE_SEQUOIA_HOME_LOCK.lock().unwrap();
+            let mut m =
+                SequoiaMechanism::from_directory(Some(fixture_path_buf().as_path())).unwrap();
+            let large_contents: Vec<u8> = vec![0; 2 * openpgp::parse::stream::DEFAULT_BUFFER_SIZE];
+            large_signature = m.sign(TEST_KEY_FINGERPRINT, None, &large_contents).unwrap();
+            let res = m.verify(&large_signature);
+            assert!(res.is_ok());
+            assert_eq!(res.unwrap().content, large_contents);
+            drop(m);
+            drop(fixture_home_locked);
+        }
         // Failure: (using a mechanism which doesn’t trust the key)
         let mut m = SequoiaMechanism::ephemeral().unwrap();
         let res = m.verify(&large_signature);
@@ -861,9 +872,15 @@ mod tests {
     }
 
     // fixture_path_buf returns this crates’ fixture directory, as an owned PathBuf.
+    // WARNING: Using SequoiaMechanism::from_directory on a shared fixture sometimes fails with
+    //  "The database file is locked"
+    // We attempt to work around this by only using such mechanism while holding fixture_sequoia_home_lock.
     fn fixture_path_buf() -> std::path::PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("./src/data")
     }
+
+    // fixture_sequoia_home_lock should be held while using a SequoiaMechanism in fixture_path_buf.
+    static FIXTURE_SEQUOIA_HOME_LOCK: Mutex<()> = Mutex::new(());
 
     // with_c_ephemeral_mechanism runs the provided function with a C-interface ephemeral mechanism,
     // as a convenience for tests of other aspects of the C bindings.
