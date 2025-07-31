@@ -36,13 +36,17 @@ impl<'a> SequoiaMechanism<'a> {
         let keystore_dir = sequoia_home.data_dir(sequoia_directories::Component::Keystore);
         let context = sequoia_keystore::Context::configure()
             .home(&keystore_dir)
+            // Coverage: .build() can never fail if .home() is set.
             .build()?;
         let keystore = sequoia_keystore::Keystore::connect(&context)?;
 
         let certstore_dir = sequoia_home.data_dir(sequoia_directories::Component::CertD);
         fs::create_dir_all(&certstore_dir)?;
+        // Coverage: CertStore::open currently never fails.
         let certstore = sequoia_cert_store::CertStore::open(&certstore_dir)?;
 
+        // Coverage: To trigger this failure, we would need to set ConfiguredStandardPolicy::ENV_VAR
+        // but that’s not safe to do in multi-threaded tests (or to overwrite the system-wide config file).
         let policy = crypto_policy()?;
 
         Ok(Self {
@@ -319,6 +323,8 @@ pub unsafe extern "C" fn sequoia_mechanism_new_from_directory<'a>(
     err_ptr: *mut *mut SequoiaError,
 ) -> *mut SequoiaMechanism<'a> {
     let c_dir = if dir_ptr.is_null() {
+        // Coverage: Testing this might affect users’ primary configuration — or we would have
+        // to set $HOME, which is not safe to do in multi-threaded tests.
         None
     } else {
         Some(CStr::from_ptr(dir_ptr))
@@ -590,7 +596,7 @@ mod tests {
         let signed = with_fixture_sequoia_home_locked(|fixture_dir| {
             let c_sequoia_home = CString::new(fixture_dir.as_os_str().as_bytes()).unwrap();
             let m1 = unsafe {
-                sequoia_mechanism_new_from_directory(c_sequoia_home.as_ptr(), &mut err_ptr)
+                super::sequoia_mechanism_new_from_directory(c_sequoia_home.as_ptr(), &mut err_ptr)
             };
             assert!(!m1.is_null());
             assert!(err_ptr.is_null());
@@ -670,6 +676,66 @@ mod tests {
                 unsafe { sequoia_verification_result_free(res) };
             }
         });
+    }
+
+    #[test]
+    fn sequoia_mechanism_from_directory() {
+        // Success is tested in primary_workflow().
+
+        // Error preparing home directory path in sequoia_directories::Home::new:
+        // Failures to access an absolute path are ignored, but a relative path triggers
+        // an attempt to create all parent directories. If one of them is an unresolvable symlink
+        // the whole operation fails.
+        {
+            let original_dir = std::env::current_dir().unwrap();
+            let temp_dir = tempfile::tempdir().unwrap();
+            std::env::set_current_dir(&temp_dir).unwrap();
+            std::os::unix::fs::symlink("/var/empty/this/does/not/exist", "unreachable-symlink")
+                .unwrap();
+            let res =
+                SequoiaMechanism::from_directory(Some(Path::new("unreachable-symlink/subdir/dir")));
+            assert!(res.is_err());
+            std::env::set_current_dir(original_dir).unwrap();
+            temp_dir.close().unwrap();
+        }
+
+        // Error creating a keystore:
+        // Use a non-directory component in the home directory path (merely using a non-existent path
+        // could succeed when running as root, auto-creating the parents).
+        let res =
+            SequoiaMechanism::from_directory(Some(Path::new("/dev/null/this/does/not/exist")));
+        assert!(res.is_err());
+
+        // Error creating a certstore directory:
+        // Place a dangling symlink at the certstore path.
+        {
+            let temp_dir = tempfile::tempdir().unwrap();
+            let certstore_dir = sequoia_directories::Home::new(temp_dir.path().to_path_buf())
+                .unwrap()
+                .data_dir(sequoia_directories::Component::CertD);
+            fs::create_dir_all(certstore_dir.parent().unwrap()).unwrap();
+            std::os::unix::fs::symlink("/var/empty/this/does/not/exist", certstore_dir).unwrap();
+            let res = SequoiaMechanism::from_directory(Some(temp_dir.path()));
+            assert!(res.is_err());
+            temp_dir.close().unwrap();
+        }
+    }
+
+    #[test]
+    fn sequoia_mechanism_new_from_directory() {
+        // Success is tested in primary_workflow().
+
+        // Failure:
+        // Use a non-directory component in the home directory path (merely using a non-existent path
+        // could succeed when running as root, auto-creating the parents).
+        let mut err_ptr: *mut SequoiaError = ptr::null_mut();
+        let c_sequoia_home = CString::new("/dev/null/this/does/not/exist").unwrap();
+        let m = unsafe {
+            super::sequoia_mechanism_new_from_directory(c_sequoia_home.as_ptr(), &mut err_ptr)
+        };
+        assert!(m.is_null());
+        assert!(!err_ptr.is_null());
+        unsafe { crate::sequoia_error_free(err_ptr) };
     }
 
     #[test]
