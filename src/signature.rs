@@ -54,6 +54,8 @@ impl<'a> SequoiaMechanism<'a> {
 
     fn ephemeral() -> Result<Self, anyhow::Error> {
         let certstore = Arc::new(sequoia_cert_store::CertStore::empty());
+        // Coverage: To trigger this failure, we would need to set ConfiguredStandardPolicy::ENV_VAR
+        // but that’s not safe to do in multi-threaded tests (or to overwrite the system-wide config file).
         let policy = crypto_policy()?;
         Ok(Self {
             keystore: None,
@@ -241,6 +243,8 @@ impl<'a> VerificationHelper for Helper<'a> {
 /// Creates a StandardPolicy with the policy we desire, primarily based on the system’s configuration.
 fn crypto_policy<'a>() -> Result<StandardPolicy<'a>, anyhow::Error> {
     let mut policy = ConfiguredStandardPolicy::new();
+    // Coverage: To trigger this failure, we would need to set ConfiguredStandardPolicy::ENV_VAR
+    // but that’s not safe to do in multi-threaded tests (or to overwrite the system-wide config file).
     policy.parse_default_config()?;
     Ok(policy.build())
 }
@@ -286,6 +290,8 @@ pub unsafe extern "C" fn sequoia_mechanism_new_ephemeral<'a>(
     match SequoiaMechanism::ephemeral() {
         Ok(mechanism) => Box::into_raw(Box::new(mechanism)),
         Err(e) => {
+            // Coverage: To trigger this failure, we would need to set ConfiguredStandardPolicy::ENV_VAR
+            // but that’s not safe to do in multi-threaded tests (or to overwrite the system-wide config file).
             set_error_from(err_ptr, e);
             ptr::null_mut()
         }
