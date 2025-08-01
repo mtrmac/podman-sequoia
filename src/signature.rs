@@ -117,6 +117,12 @@ impl<'a> SequoiaMechanism<'a> {
 
         let cert = certs[0]
             .to_cert()
+            // Coverage: If LazyCert is not a Cert already, it is a RawCert, and that ensures
+            // that it starts with a primary key packet, and contains only expected (or unknown) packets.
+            // The Cert parsing requires that only expected packet types are present, and that they
+            // "follow the grammar", but it turns out that any sequence that starts with a primary key
+            // satisfies that. So, it seems that to_cert should never fail and this error
+            // handling path is unreachable.
             .with_context(|| format!("Parsing certificate for {key_handle}"))?;
 
         let keystore = self.keystore.as_mut().ok_or_else(|| {
@@ -140,6 +146,7 @@ impl<'a> SequoiaMechanism<'a> {
                 rejected_key_errors
                     .push(format!("key {} is not supported", ka.key().fingerprint()));
             } else {
+                // Coverage: find_key() never fails.
                 let mut keys = keystore.find_key(ka.key().key_handle())?;
                 if keys.is_empty() {
                     rejected_key_errors.push(format!(
@@ -180,8 +187,17 @@ impl<'a> SequoiaMechanism<'a> {
         let mut sink = vec![];
         {
             let message = Message::new(&mut sink);
-            let message = Signer::new(message, &mut key)?.build()?;
+            // Coverage: Signer::new() never fails.
+            let message = Signer::new(message, &mut key)?
+                // Coverage: Signer::build() could fail
+                // - With a caller-chosen unsupported hash algorithm (not our case)
+                // - If random number generation fails (possible)
+                // - If the key in the signer used an unimplemented version (no way to create that)
+                // - If writing failed (impossible when writing to memory)
+                .build()?;
+            // Coverage: LiteralWriter::build() could fail if writing failed (impossible when writing to memory)
             let mut message = LiteralWriter::new(message).build()?;
+            // Coverage: This could fail only if writing failed (impossible when writing to memory)
             message.write_all(data)?;
             message.finalize()?;
         }
@@ -227,9 +243,10 @@ impl<'a> VerificationHelper for Helper<'a> {
             match self.certstore.lookup_by_cert_or_subkey(id) {
                 Ok(matches) => {
                     for lc in matches {
-                        // lc.to_cert() should never fail for ephemeral SequoiaMechanism, where the in-memory cert store always creates
+                        // Coverage: lc.to_cert() should never fail for ephemeral SequoiaMechanism, where the in-memory cert store always creates
                         // a LazyCert from a parsed Cert. It could fail for non-ephemeral contexts, where the LazyCert typically originates
-                        // as RawCert and the parsed Cert would be created here.
+                        // as RawCert and the parsed Cert would be created here — but see the discusison of LazyCert::to_cert() in
+                        // SigningMechanism::sign(), it seems that this can not actually fail.
                         certs.push(lc.to_cert()?.clone());
                     }
                 }
@@ -580,10 +597,14 @@ pub unsafe extern "C" fn sequoia_set_logger_consumer(
 mod tests {
     use super::*;
 
+    use openpgp::serialize::SerializeInto as _;
+
     const TEST_KEY: &[u8] = include_bytes!("./data/no-passphrase.pub");
-    const TEST_KEY_WITH_PASSPHRASE: &[u8] = include_bytes!("./data/with-passphrase.pub");
     const TEST_KEY_FINGERPRINT: &str = "50DDE898DF4E48755C8C2B7AF6F908B6FA48A229";
-    const TEST_KEY_FINGERPRINT_WITH_PASSPHRASE: &str = "1F5825285B785E1DB13BF36D2D11A19ABA41C6AE";
+    const TEST_KEY_WITH_PASSPHRASE: &[u8] = include_bytes!("./data/with-passphrase.pub");
+    // Note that the tests never unlock this key, because that would affect per-process state
+    // and interfere with any other tests referring to this key.
+    const TEST_KEY_WITH_PASSPHRASE_FINGERPRINT: &str = "1F5825285B785E1DB13BF36D2D11A19ABA41C6AE";
     const INVALID_PUBLIC_KEY_BLOB: &[u8] = b"\xC6\x09this is not a valid public key";
 
     #[test]
@@ -739,6 +760,257 @@ mod tests {
     }
 
     #[test]
+    fn sign() {
+        // Success is tested in primary_workflow().
+
+        fn with_temporary_mechanism<R>(f: impl FnOnce(&mut SequoiaMechanism) -> R) -> R {
+            let temp_dir = tempfile::tempdir().unwrap();
+            let mut mech = SequoiaMechanism::from_directory(Some(temp_dir.path())).unwrap();
+            let res = f(&mut mech);
+            temp_dir.close().unwrap();
+            res
+        }
+
+        // Successful signing with a passphrase:
+        // We want to do this on a temporary mechanism, because seqoia-keystore::server::Servers maintains
+        // a per-process singleton for each home directory; so, unlocking a key is permanent.
+        // OTOH we want to also test not unlocking, or unlocking with a wrong passphrase — so we need
+        // at least two mechanisms, one where unlocking succeeds, one where it fails.
+        const LOCAL_PASSPHRASE: &str = "a single-use passphrase";
+        let (cert, signature) = with_temporary_mechanism(|mut mech| {
+            let (cert, _) = CertBuilder::new()
+                .set_primary_key_flags(
+                    openpgp::types::KeyFlags::empty()
+                        .set_certification()
+                        .set_signing(),
+                )
+                .add_userid("passphrase-protected")
+                .set_password(Some(LOCAL_PASSPHRASE.into()))
+                .generate()
+                .unwrap();
+            import_private_key(&mut mech, &cert);
+            // Sanity-check that signing without a passphrase fails, first
+            let res = mech.sign(&cert.fingerprint().to_hex(), None, b"contents");
+            assert!(res.is_err());
+            let res = mech.sign(
+                &cert.fingerprint().to_hex(),
+                Some(LOCAL_PASSPHRASE),
+                b"contents",
+            );
+            assert!(res.is_ok());
+            let signature = res.unwrap();
+            (cert, signature)
+        });
+        let fingerprint = cert.fingerprint();
+        let mut mech = SequoiaMechanism::ephemeral().unwrap();
+        mech.import_keys(
+            cert.strip_secret_key_material()
+                .export_to_vec()
+                .unwrap()
+                .as_slice(),
+        )
+        .unwrap();
+        let res = mech.verify(&signature);
+        assert!(res.is_ok());
+        assert_eq!(res.as_ref().unwrap().content, b"contents");
+        assert_eq!(
+            res.as_ref().unwrap().signer,
+            CString::new(fingerprint.to_hex()).unwrap()
+        );
+
+        // Invalid key handle format:
+        with_fixture_sequoia_home_locked(|fixture_dir| {
+            let mut mech = SequoiaMechanism::from_directory(Some(fixture_dir)).unwrap();
+            let res = mech.sign("should-be-hexadecimal", None, b"contents");
+            assert!(res.is_err());
+        });
+
+        // Key handle not found in certificate store:
+        with_fixture_sequoia_home_locked(|fixture_dir| {
+            let mut mech = SequoiaMechanism::from_directory(Some(fixture_dir)).unwrap();
+            let res = mech.sign(
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                None,
+                b"contents",
+            );
+            assert!(res.is_err());
+        });
+
+        // We don’t test the case where a key matches multiple certificates.
+        // This is reachable by using a key ID (not a fingerprint) that matches multiple fingerprints,
+        // we are not going to try generating such a collision. Also, the external c/image API
+        // is documented to accept fingerprints, not key IDs (although, actually, key IDs are not rejected).
+
+        // Attempting to sign with an ephemeral mechanism (no keystore):
+        let mut mech = SequoiaMechanism::ephemeral().unwrap();
+        mech.import_keys(&TEST_KEY).unwrap();
+        let res = mech.sign(TEST_KEY_FINGERPRINT, None, b"contents");
+        assert!(res.is_err());
+
+        // Trying to sign with a key where even the primary key is invalid (in this case, the binding signature is expired):
+        with_temporary_mechanism(|mut mech| {
+            let cert = generate_cert_with_expired_self_signature();
+            import_private_key(&mut mech, &cert);
+            let res = mech.sign(&cert.fingerprint().to_hex(), None, b"contents");
+            assert!(res.is_err());
+        });
+
+        // Trying to sign with an expired key
+        with_temporary_mechanism(|mut mech| {
+            // For simplicity, we generate a single-key certificate where the primary
+            // key supports signing and is expired.
+            let (cert, _) = CertBuilder::new()
+                .set_primary_key_flags(
+                    openpgp::types::KeyFlags::empty()
+                        .set_certification()
+                        .set_signing(),
+                )
+                .add_userid("key expired")
+                .set_creation_time(
+                    std::time::SystemTime::now()
+                        - std::time::Duration::from_secs(365 * 24 * 60 * 60),
+                )
+                .set_validity_period(std::time::Duration::from_secs(60 * 60))
+                .generate()
+                .unwrap();
+            import_private_key(&mut mech, &cert);
+            let res = mech.sign(&cert.fingerprint().to_hex(), None, b"contents");
+            assert!(res.is_err());
+        });
+
+        // Trying to sign with a revoked key
+        with_temporary_mechanism(|mut mech| {
+            let (cert, _) = CertBuilder::new()
+                .add_userid("signing subkey revoked")
+                .set_creation_time(
+                    std::time::SystemTime::now()
+                        - std::time::Duration::from_secs(365 * 24 * 60 * 60),
+                )
+                .add_signing_subkey()
+                .generate()
+                .unwrap();
+            let mut signer = cert
+                .primary_key()
+                .key()
+                .clone()
+                .parts_into_secret()
+                .unwrap()
+                .into_keypair()
+                .unwrap();
+            let subkey = cert.keys().subkeys().nth(0).unwrap();
+            let sig = SubkeyRevocationBuilder::new()
+                .set_reason_for_revocation(openpgp::types::ReasonForRevocation::KeyCompromised, b"")
+                .unwrap()
+                .build(&mut signer, &cert, subkey.key(), None)
+                .unwrap();
+            let cert = cert.insert_packets(sig).unwrap().0;
+            import_private_key(&mut mech, &cert);
+            let res = mech.sign(&cert.fingerprint().to_hex(), None, b"contents");
+            assert!(res.is_err());
+        });
+
+        // We do not test trying to sign with an unsupported key: that would require creating
+        // and importing an ElGamal key somehow.
+
+        // Trying to sign when we have a certificate but not the private key.
+        with_temporary_mechanism(|mech| {
+            mech.import_keys(TEST_KEY).unwrap();
+            let res = mech.sign(TEST_KEY_FINGERPRINT, None, b"contents");
+            assert!(res.is_err());
+        });
+
+        // Trying to sign using a key which is not capable of signing:
+        with_temporary_mechanism(|mut mech| {
+            // For simplicity, we generate a single-key certificate where the primary
+            // key only supports certification.
+            let (cert, _) = CertBuilder::new()
+                .add_userid("no signing capability")
+                .generate()
+                .unwrap();
+            import_private_key(&mut mech, &cert);
+            let res = mech.sign(&cert.fingerprint().to_hex(), None, b"contents");
+            assert!(res.is_err());
+        });
+
+        // Trying to sign without providing a required passphrase:
+        with_fixture_sequoia_home_locked(|fixture_dir| {
+            let mut mech = SequoiaMechanism::from_directory(Some(fixture_dir)).unwrap();
+            let res = mech.sign(TEST_KEY_WITH_PASSPHRASE_FINGERPRINT, None, b"contents");
+            assert!(res.is_err());
+        });
+
+        // Trying to sign with a wrong passphrase:
+        with_fixture_sequoia_home_locked(|fixture_dir| {
+            let mut mech = SequoiaMechanism::from_directory(Some(fixture_dir)).unwrap();
+            let res = mech.sign(
+                TEST_KEY_WITH_PASSPHRASE_FINGERPRINT,
+                Some("incorrect passphrase"),
+                b"contents",
+            );
+            assert!(res.is_err());
+        });
+    }
+
+    // generate_cert_with_expired_self_signature is a helper for the sign() test.
+    pub fn generate_cert_with_expired_self_signature() -> Cert {
+        // This is surprisingly tedious.
+        //
+        // Ordinarily, CertBuilder.set_validity_period() sets the _key_ validity period;
+        // that does not invalidate the validity of the self-signature, and that’s
+        // the only thing Cert::with_policy() cares about. (In particular, at least for a primary
+        // key, it ignores revoked binding signatures as well as binding signatuers with expired keys).
+        // So, this is basically CertBuilder::generate(), specialized for our parameters,
+        // with the extra set_signature_validity_period() calls we need.
+        let creation_time =
+            std::time::SystemTime::now() - std::time::Duration::from_secs(365 * 24 * 60 * 60);
+
+        // Generate & self-sign primary key.
+        let mut primary = openpgp::packet::key::Key::V4(
+            openpgp::packet::key::Key4::<
+                openpgp::packet::key::SecretParts,
+                openpgp::packet::key::PrimaryRole,
+            >::generate_ecc(true, openpgp::types::Curve::Ed25519)
+            .unwrap(),
+        );
+        primary.set_creation_time(creation_time).unwrap();
+        let mut signer = primary.clone().into_keypair().unwrap();
+
+        let our_signature_builder =
+            |typ: openpgp::types::SignatureType| -> openpgp::packet::prelude::SignatureBuilder {
+                openpgp::packet::prelude::SignatureBuilder::new(typ)
+                    .set_signature_creation_time(creation_time)
+                    .unwrap()
+                    .set_signature_validity_period(std::time::Duration::from_secs(24 * 60 * 60))
+                    .unwrap()
+                    .set_key_flags(
+                        openpgp::types::KeyFlags::empty()
+                            .set_certification()
+                            .set_signing(),
+                    )
+                    .unwrap()
+            };
+
+        let cert = Cert::try_from(vec![openpgp::Packet::SecretKey(primary.clone())]).unwrap();
+        let direct_sig = our_signature_builder(openpgp::types::SignatureType::DirectKey)
+            .sign_direct_key(&mut signer, primary.parts_as_public())
+            .unwrap();
+        let uid = openpgp::packet::UserID::from("expired binding signature");
+        let sig = our_signature_builder(openpgp::types::SignatureType::PositiveCertification)
+            .set_primary_userid(true)
+            .unwrap();
+        let uid_signature = uid.bind(&mut signer, &cert, sig).unwrap();
+        let cert = cert
+            .insert_packets(vec![
+                openpgp::Packet::Signature(direct_sig),
+                uid.into(),
+                uid_signature.into(),
+            ])
+            .unwrap()
+            .0;
+        cert
+    }
+
+    #[test]
     fn import_keys() {
         // The basic case of import of a single key is tested in primary_workflow().
 
@@ -758,7 +1030,7 @@ mod tests {
             res.unwrap().key_handles,
             [
                 CString::new(TEST_KEY_FINGERPRINT).unwrap(),
-                CString::new(TEST_KEY_FINGERPRINT_WITH_PASSPHRASE).unwrap(),
+                CString::new(TEST_KEY_WITH_PASSPHRASE_FINGERPRINT).unwrap(),
             ],
         );
 
@@ -877,9 +1149,6 @@ mod tests {
     #[test]
     fn verification_helper_get_certs() {
         // Success is tested in primary_workflow().
-
-        // We don’t test the code path where a LazyCert.to_cert() fails; we’d probably have to use SequoiaMechanism::from_directory
-        // against a fixture with invalid certificates, and it’s irrelevant to verification in an ephemeral mechanism.
 
         let valid_signature = include_bytes!("./data/sequoia.signature");
 
@@ -1004,5 +1273,29 @@ mod tests {
         f(m);
 
         unsafe { sequoia_mechanism_free(m) };
+    }
+
+    // import_private_key imports a certificate and the included private key into a mechanism.
+    fn import_private_key(mech: &mut SequoiaMechanism, cert: &Cert) {
+        let mut softkeys = None;
+        for mut backend in mech
+            .keystore
+            .as_mut()
+            .unwrap()
+            .backends()
+            .unwrap()
+            .into_iter()
+        {
+            if backend.id().unwrap() == "softkeys" {
+                softkeys = Some(backend);
+                break;
+            }
+        }
+        let mut softkeys = softkeys.unwrap();
+        softkeys.import(&cert).unwrap();
+        let cert = cert.clone().strip_secret_key_material();
+        mech.certstore
+            .update(Arc::new(sequoia_cert_store::LazyCert::from(cert)))
+            .unwrap();
     }
 }
