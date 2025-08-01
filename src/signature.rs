@@ -552,7 +552,7 @@ mod tests {
                     sequoia_sign(
                         m1,
                         c_fingerprint.as_ptr(),
-                        std::ptr::null(),
+                        ptr::null(),
                         input.as_ptr(),
                         input.len(),
                         &mut err_ptr,
@@ -562,7 +562,7 @@ mod tests {
                 assert!(err_ptr.is_null());
                 let mut sig_size: size_t = 0;
                 let c_sig_data = unsafe { sequoia_signature_get_data(sig, &mut sig_size) };
-                let sig_slice = unsafe { std::slice::from_raw_parts(c_sig_data, sig_size) };
+                let sig_slice = unsafe { slice::from_raw_parts(c_sig_data, sig_size) };
                 signed = sig_slice.to_vec();
                 unsafe { sequoia_signature_free(sig) };
             }
@@ -610,8 +610,7 @@ mod tests {
                 let mut contents_size: size_t = 0;
                 let c_contents =
                     unsafe { sequoia_verification_result_get_content(res, &mut contents_size) };
-                let contents_slice =
-                    unsafe { std::slice::from_raw_parts(c_contents, contents_size) };
+                let contents_slice = unsafe { slice::from_raw_parts(c_contents, contents_size) };
                 assert_eq!(contents_slice, input);
 
                 let c_signer = unsafe { sequoia_verification_result_get_signer(res) };
