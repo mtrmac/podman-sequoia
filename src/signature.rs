@@ -612,39 +612,28 @@ mod tests {
         // The typical successful usage of this library.
         let input = b"Hello, world!";
 
-        let mut err_ptr: *mut SequoiaError = ptr::null_mut();
+        let signed = with_c_fixture_mechanism(|m1| {
+            let mut err_ptr: *mut SequoiaError = ptr::null_mut();
 
-        let signed = with_fixture_sequoia_home_locked(|fixture_dir| {
-            let c_sequoia_home = CString::new(fixture_dir.as_os_str().as_bytes()).unwrap();
-            let m1 = unsafe {
-                super::sequoia_mechanism_new_from_directory(c_sequoia_home.as_ptr(), &mut err_ptr)
+            let c_fingerprint = CString::new(TEST_KEY_FINGERPRINT).unwrap();
+            let sig = unsafe {
+                super::sequoia_sign(
+                    m1,
+                    c_fingerprint.as_ptr(),
+                    ptr::null(),
+                    input.as_ptr(),
+                    input.len(),
+                    &mut err_ptr,
+                )
             };
-            assert!(!m1.is_null());
+            assert!(!sig.is_null());
             assert!(err_ptr.is_null());
+            let mut sig_size: size_t = 0;
+            let c_sig_data = unsafe { sequoia_signature_get_data(sig, &mut sig_size) };
+            let sig_slice = unsafe { slice::from_raw_parts(c_sig_data, sig_size) };
+            let signed = sig_slice.to_vec();
+            unsafe { sequoia_signature_free(sig) };
 
-            let signed: Vec<u8>;
-            {
-                let c_fingerprint = CString::new(TEST_KEY_FINGERPRINT).unwrap();
-                let sig = unsafe {
-                    sequoia_sign(
-                        m1,
-                        c_fingerprint.as_ptr(),
-                        ptr::null(),
-                        input.as_ptr(),
-                        input.len(),
-                        &mut err_ptr,
-                    )
-                };
-                assert!(!sig.is_null());
-                assert!(err_ptr.is_null());
-                let mut sig_size: size_t = 0;
-                let c_sig_data = unsafe { sequoia_signature_get_data(sig, &mut sig_size) };
-                let sig_slice = unsafe { slice::from_raw_parts(c_sig_data, sig_size) };
-                signed = sig_slice.to_vec();
-                unsafe { sequoia_signature_free(sig) };
-            }
-
-            unsafe { sequoia_mechanism_free(m1) }
             signed
         });
 
@@ -1011,6 +1000,145 @@ mod tests {
     }
 
     #[test]
+    fn sequoia_sign() {
+        // Success is tested in primary_workflow().
+
+        let plaintext = b"contents";
+
+        // Successful signing with a passphrase:
+        // See the comment in the sign() test about not unlocking the fixture home directory
+        // in tests.
+        let (cert, signature) = {
+            const LOCAL_PASSPHRASE: &str = "a single-use passphrase";
+
+            let temp_dir = tempfile::tempdir().unwrap();
+            let cert = {
+                let mut mech = SequoiaMechanism::from_directory(Some(temp_dir.path())).unwrap();
+
+                let (cert, _) = CertBuilder::new()
+                    .set_primary_key_flags(
+                        openpgp::types::KeyFlags::empty()
+                            .set_certification()
+                            .set_signing(),
+                    )
+                    .add_userid("passphrase-protected")
+                    .set_password(Some(LOCAL_PASSPHRASE.into()))
+                    .generate()
+                    .unwrap();
+                import_private_key(&mut mech, &cert);
+                // Sanity-check that signing without a passphrase fails, first
+                let res = mech.sign(&cert.fingerprint().to_hex(), None, plaintext);
+                assert!(res.is_err());
+                cert
+            };
+            let signature = with_c_mechanism_from_directory(temp_dir.path(), |mech| {
+                let mut err_ptr: *mut SequoiaError = ptr::null_mut();
+
+                let c_fingerprint = CString::new(cert.fingerprint().to_hex()).unwrap();
+                let c_passphrase = CString::new(LOCAL_PASSPHRASE).unwrap();
+                let sig = unsafe {
+                    super::sequoia_sign(
+                        mech,
+                        c_fingerprint.as_ptr(),
+                        c_passphrase.as_ptr(),
+                        plaintext.as_ptr(),
+                        plaintext.len(),
+                        &mut err_ptr,
+                    )
+                };
+                assert!(!sig.is_null());
+                assert!(err_ptr.is_null());
+                let mut sig_size: size_t = 0;
+                let c_sig_data = unsafe { sequoia_signature_get_data(sig, &mut sig_size) };
+                let sig_slice = unsafe { slice::from_raw_parts(c_sig_data, sig_size) };
+                let signature = sig_slice.to_vec();
+                unsafe { sequoia_signature_free(sig) }
+                signature
+            });
+            (cert, signature)
+        };
+        let fingerprint = cert.fingerprint();
+        let mut mech = SequoiaMechanism::ephemeral().unwrap();
+        mech.import_keys(
+            cert.strip_secret_key_material()
+                .export_to_vec()
+                .unwrap()
+                .as_slice(),
+        )
+        .unwrap();
+        let res = mech.verify(&signature);
+        assert!(res.is_ok());
+        assert_eq!(res.as_ref().unwrap().content, plaintext);
+        assert_eq!(
+            res.as_ref().unwrap().signer,
+            CString::new(fingerprint.to_hex()).unwrap()
+        );
+
+        // Invalid UTF-8 in key_handle:
+        with_c_fixture_mechanism(|m| {
+            let mut err_ptr: *mut SequoiaError = ptr::null_mut();
+
+            let c_fingerprint = CString::new(b"invalid UTF-8: \x80\x80").unwrap();
+            let res = unsafe {
+                super::sequoia_sign(
+                    m,
+                    c_fingerprint.as_ptr(),
+                    ptr::null(),
+                    plaintext.as_ptr(),
+                    plaintext.len(),
+                    &mut err_ptr,
+                )
+            };
+            assert!(res.is_null());
+            assert!(!err_ptr.is_null());
+            unsafe { crate::sequoia_error_free(err_ptr) };
+        });
+
+        // Invalid UTF-8 in password:
+        with_c_fixture_mechanism(|m| {
+            let mut err_ptr: *mut SequoiaError = ptr::null_mut();
+
+            // This key doesn’t require a passphrase at all — we fail anyway, before
+            // we could even get the opportunity to determine that.
+            let c_fingerprint = CString::new(TEST_KEY_FINGERPRINT).unwrap();
+            let c_passphrase = CString::new(b"invalid UTF-8: \x80\x80").unwrap();
+            let res = unsafe {
+                super::sequoia_sign(
+                    m,
+                    c_fingerprint.as_ptr(),
+                    c_passphrase.as_ptr(),
+                    plaintext.as_ptr(),
+                    plaintext.len(),
+                    &mut err_ptr,
+                )
+            };
+            assert!(res.is_null());
+            assert!(!err_ptr.is_null());
+            unsafe { crate::sequoia_error_free(err_ptr) };
+        });
+
+        // Signing failed (in this case, invalid fingerprint):
+        with_c_fixture_mechanism(|m| {
+            let mut err_ptr: *mut SequoiaError = ptr::null_mut();
+
+            let c_fingerprint = CString::new(b"this is not a valid fingerprint").unwrap();
+            let res = unsafe {
+                super::sequoia_sign(
+                    m,
+                    c_fingerprint.as_ptr(),
+                    ptr::null(),
+                    plaintext.as_ptr(),
+                    plaintext.len(),
+                    &mut err_ptr,
+                )
+            };
+            assert!(res.is_null());
+            assert!(!err_ptr.is_null());
+            unsafe { crate::sequoia_error_free(err_ptr) };
+        });
+    }
+
+    #[test]
     fn import_keys() {
         // The basic case of import of a single key is tested in primary_workflow().
 
@@ -1259,6 +1387,36 @@ mod tests {
         let fixture_path_buf = Path::new(env!("CARGO_MANIFEST_DIR")).join("./src/data");
         let _guard = LOCK.lock().unwrap();
         return f(fixture_path_buf);
+    }
+
+    // with_c_mechanism_from_directory runs the provided function with a C-interface mechanism
+    // in path, as a convenience for tests of other aspects of the C bindings.
+    fn with_c_mechanism_from_directory<R>(
+        path: impl AsRef<Path>,
+        f: impl FnOnce(*mut SequoiaMechanism) -> R,
+    ) -> R {
+        let mut err_ptr: *mut SequoiaError = ptr::null_mut();
+
+        let c_sequoia_home = CString::new(path.as_ref().as_os_str().as_bytes()).unwrap();
+        let m = unsafe {
+            super::sequoia_mechanism_new_from_directory(c_sequoia_home.as_ptr(), &mut err_ptr)
+        };
+        assert!(!m.is_null());
+        assert!(err_ptr.is_null());
+
+        let res = f(m);
+
+        unsafe { sequoia_mechanism_free(m) };
+
+        res
+    }
+
+    // with_c_fixture_mechanism runs the provided function with a C-interface mechanism
+    // in fixture_path_buf(), as a convenience for tests of other aspects of the C bindings.
+    fn with_c_fixture_mechanism<R>(f: impl FnOnce(*mut SequoiaMechanism) -> R) -> R {
+        return with_fixture_sequoia_home_locked(|fixture_dir| {
+            return with_c_mechanism_from_directory(fixture_dir, f);
+        });
     }
 
     // with_c_ephemeral_mechanism runs the provided function with a C-interface ephemeral mechanism,
