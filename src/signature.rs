@@ -529,6 +529,7 @@ pub unsafe extern "C" fn sequoia_import_keys(
 }
 
 // SequoiaLogLevel is a C-compatible version of log::Level.
+#[derive(Eq, PartialEq, Debug)]
 #[repr(C)]
 /// cbindgen:rename-all=ScreamingSnakeCase
 /// cbindgen:prefix-with-name
@@ -582,6 +583,10 @@ pub unsafe extern "C" fn sequoia_set_logger_consumer(
     let logger = SequoiaLogger { consumer };
     match log::set_boxed_logger(Box::new(logger)) {
         // Leaks the logger, but this is explicitly an once-per-process API.
+        //
+        // Coverage: set_boxed_logger can only succeed once per process, and internally,
+        // sequoia-keystore does env_logger::Builder::from_default_env().try_init(),
+        // i.e. unrelated test cases can set the logger, and we can’t reliably test the success path.
         Ok(_) => {}
         Err(e) => {
             set_error_from(err_ptr, e.into());
@@ -597,6 +602,7 @@ pub unsafe extern "C" fn sequoia_set_logger_consumer(
 mod tests {
     use super::*;
 
+    use log::Log as _;
     use openpgp::serialize::SerializeInto as _;
 
     const TEST_KEY: &[u8] = include_bytes!("./data/no-passphrase.pub");
@@ -1377,6 +1383,105 @@ mod tests {
         m.import_keys(TEST_KEY_WITH_PASSPHRASE).unwrap();
         let res = m.verify(double_signed_signature);
         assert!(res.is_ok());
+    }
+
+    #[test]
+    fn sequoia_logger() {
+        // See the discussion in sequoia_set_logger_consumer below explaining that we can’t test
+        // logging end-to-end.
+
+        struct Recording {
+            level: Option<SequoiaLogLevel>,
+            message: Option<String>,
+        }
+        // RECORDED allows logging _one_ message, and records the data for later inspection.
+        // This must be static because the "consumer" parameter is not accompanied
+        // with any way to pass context to the C closure.
+        static RECORDED: std::sync::Mutex<Recording> = std::sync::Mutex::new(Recording {
+            level: None,
+            message: None,
+        });
+
+        extern "C" fn record(level: SequoiaLogLevel, message: *const c_char) {
+            let c_message = unsafe { CStr::from_ptr(message) };
+            let mut recorded = RECORDED.lock().unwrap();
+            assert!(recorded.level.is_none());
+            assert!(recorded.message.is_none());
+            recorded.level = Some(level);
+            recorded.message = Some(c_message.to_str().unwrap().to_owned());
+        }
+        fn recorded() -> (Option<SequoiaLogLevel>, Option<String>) {
+            let mut recorded = RECORDED.lock().unwrap();
+            (recorded.level.take(), recorded.message.take())
+        }
+
+        // Log::enabled
+        let logger = SequoiaLogger { consumer: record };
+        for mb in [
+            // A random set of examples, the implementation ignores the value.
+            &mut log::MetadataBuilder::new(),
+            log::MetadataBuilder::new().level(log::Level::Info),
+            log::MetadataBuilder::new()
+                .level(log::Level::Trace)
+                .target("some target"),
+        ] {
+            let res = logger.enabled(&mb.build());
+            assert_eq!(res, true);
+            assert_eq!(recorded(), (None, None));
+        }
+
+        // Log::log
+        for (rust_level, c_level) in [
+            (log::Level::Error, SequoiaLogLevel::Error),
+            (log::Level::Warn, SequoiaLogLevel::Warn),
+            (log::Level::Info, SequoiaLogLevel::Info),
+            (log::Level::Debug, SequoiaLogLevel::Debug),
+            (log::Level::Trace, SequoiaLogLevel::Trace),
+        ] {
+            let record = log::RecordBuilder::new()
+                .args(format_args!("text"))
+                .level(rust_level)
+                .build();
+            logger.log(&record);
+            assert_eq!(recorded(), (Some(c_level), Some("text".into())));
+        }
+        // Entries with embedded NULs are discarded
+        let record = log::RecordBuilder::new()
+            .args(format_args!("NUL:'\0'"))
+            .level(log::Level::Info)
+            .build();
+        logger.log(&record);
+        assert_eq!(recorded(), (None, None));
+
+        // Log::flush
+        logger.flush();
+        assert_eq!(recorded(), (None, None));
+        logger.log(&log::RecordBuilder::new().args(format_args!("text")).build());
+        // Here we don't care about the value, we just want known state to verify that flush() does not call the callback.
+        _ = recorded();
+        logger.flush();
+        assert_eq!(recorded(), (None, None));
+    }
+
+    #[test]
+    fn sequoia_set_logger_consumer() {
+        // set_boxed_logger can only succeed once per process, and internally,
+        // sequoia-keystore does env_logger::Builder::from_default_env().try_init(),
+        // i.e. unrelated test cases can set the logger, and we can’t reliably test the success path.
+        // (Therefore we also can't test logging end-to-end, by calling log::… and verifying the
+        // C consumer receives the data.)
+        // So, test just the failure path, by invoking the function twice.
+        extern "C" fn noop_consumer(_: SequoiaLogLevel, _: *const c_char) {}
+        let mut err_ptr: *mut SequoiaError = ptr::null_mut();
+        _ = unsafe { super::sequoia_set_logger_consumer(noop_consumer, &mut err_ptr) };
+        if !err_ptr.is_null() {
+            unsafe { crate::sequoia_error_free(err_ptr) };
+            err_ptr = ptr::null_mut();
+        }
+        let res = unsafe { super::sequoia_set_logger_consumer(noop_consumer, &mut err_ptr) };
+        assert_ne!(res, 0);
+        assert!(!err_ptr.is_null());
+        unsafe { crate::sequoia_error_free(err_ptr) };
     }
 
     // with_fixture_sequoia_home_locked runs the provided function with a lock that serializes
